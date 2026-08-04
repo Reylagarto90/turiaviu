@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TuriaViu · AFEMPES</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --verde-bosque:#1B4D3E;
+    --verde-bosque-dark:#0F332A;
+    --salvia:#A9C4B8;
+    --salvia-light:#E7EFEA;
+    --rosa:#D98CA0;
+    --rosa-dark:#B15D75;
+    --fondo:#FAF9F6;
+    --texto:#233129;
+    --texto-suave:#5B6B62;
+    --borde:#DDE4DF;
+    --blanco:#FFFFFF;
+    --radio:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--fondo); color:var(--texto);
+  }
+  a{color:inherit;}
+
+  /* ---------- LOGIN ---------- */
+  #login-screen{
+    min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:24px; gap:28px;
+  }
+  #login-screen img.logo-afempes{ height:70px; }
+  .login-card{
+    background:var(--blanco); border:1px solid var(--borde); border-radius:16px;
+    padding:36px 32px; width:100%; max-width:380px; box-shadow:0 2px 16px rgba(27,77,62,0.06);
+  }
+  .login-card h1{ font-size:20px; margin:0 0 6px; color:var(--verde-bosque-dark); font-weight:600;}
+  .login-card p.sub{ margin:0 0 24px; font-size:13px; color:var(--texto-suave); }
+  .login-card label{ display:block; font-size:13px; margin-bottom:6px; color:var(--texto-suave); }
+  .login-card input{
+    width:100%; padding:10px 12px; margin-bottom:16px; border:1px solid var(--borde);
+    border-radius:8px; font-size:14px;
+  }
+  .login-card input:focus{ outline:2px solid var(--salvia); border-color:var(--verde-bosque); }
+  .btn-primary{
+    width:100%; background:var(--verde-bosque); color:var(--blanco); border:none;
+    padding:11px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer;
+  }
+  .btn-primary:hover{ background:var(--verde-bosque-dark); }
+  .btn-secundario{
+    background:var(--blanco); color:var(--verde-bosque); border:1px solid var(--verde-bosque);
+    padding:8px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;
+  }
+  .btn-secundario:hover{ background:var(--salvia-light); }
+  .btn-secundario:disabled{ opacity:0.6; cursor:default; }
+  #login-error{ color:var(--rosa-dark); font-size:13px; margin-top:10px; min-height:16px; }
+  .banda-institucional{ max-width:420px; width:100%; }
+  .banda-institucional img{ width:100%; display:block; border-radius:6px; }
+
+  /* ---------- APP SHELL ---------- */
+  #app{ display:none; min-height:100vh; }
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 20px; background:var(--blanco); border-bottom:1px solid var(--borde);
+    position:sticky; top:0; z-index:10;
+  }
+  header .marca{ display:flex; align-items:center; gap:12px; }
+  header img.logo-afempes-header{ height:36px; }
+  header .titulo-proyecto{ font-size:14px; font-weight:600; color:var(--verde-bosque-dark); }
+  header .titulo-proyecto span{ display:block; font-weight:400; font-size:11px; color:var(--texto-suave); }
+  header img.banda-header{ height:34px; }
+  header .usuario{ display:flex; align-items:center; gap:10px; font-size:13px; }
+  header button.link{ background:none; border:none; color:var(--texto-suave); cursor:pointer; font-size:13px; text-decoration:underline; }
+
+  .layout{ display:flex; }
+  nav.sidebar{
+    width:230px; flex-shrink:0; background:var(--verde-bosque-dark); min-height:calc(100vh - 57px);
+    padding:16px 10px;
+  }
+  nav.sidebar .modulo{
+    display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px;
+    color:#D9E6DF; font-size:13px; cursor:pointer; margin-bottom:2px;
+  }
+  nav.sidebar .modulo:hover{ background:rgba(255,255,255,0.06); }
+  nav.sidebar .modulo.activo{ background:var(--salvia); color:var(--verde-bosque-dark); font-weight:600; }
+  nav.sidebar .modulo .badge-proximamente{
+    margin-left:auto; font-size:10px; background:rgba(255,255,255,0.12); padding:2px 6px; border-radius:6px;
+    color:#B9C9C1;
+  }
+  main{ flex:1; padding:28px 32px; }
+  main h2{ margin:0 0 4px; color:var(--verde-bosque-dark); font-size:20px; }
+  main p.section-sub{ margin:0 0 24px; color:var(--texto-suave); font-size:13px; }
+
+  .card{ background:var(--blanco); border:1px solid var(--borde); border-radius:var(--radio); padding:20px; margin-bottom:16px; }
+  .objetivo-card .oe-codigo{
+    display:inline-block; background:var(--salvia-light); color:var(--verde-bosque-dark);
+    font-size:11px; font-weight:600; padding:3px 8px; border-radius:6px; margin-bottom:8px;
+  }
+  .objetivo-card .oe-desc{ font-size:13px; color:var(--texto); margin:0 0 14px; line-height:1.5; }
+  .indicador-row{ margin-bottom:12px; }
+  .indicador-row .ind-label{ display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px; color:var(--texto-suave); }
+  .barra-bg{ background:var(--salvia-light); border-radius:6px; height:8px; overflow:hidden; }
+  .barra-fill{ background:var(--verde-bosque); height:100%; border-radius:6px; transition:width .4s; }
+  .barra-fill.rosa{ background:var(--rosa-dark); }
+
+  .placeholder-modulo{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:60px 20px; color:var(--texto-suave); text-align:center; border:1px dashed var(--borde); border-radius:var(--radio);
+  }
+  .placeholder-modulo strong{ color:var(--verde-bosque-dark); font-size:15px; margin-bottom:6px; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================= -->
+<!-- LOGIN                                                          -->
+<!-- ============================================================= -->
+<div id="login-screen">
+  <img class="logo-afempes" src="assets/logo_afempes.png" alt="AFEMPES Salud Mental">
+  <div class="login-card">
+    <h1>TuriaViu</h1>
+    <p class="sub">Herramienta interna de gestión del proyecto</p>
+    <label for="email">Correo electrónico</label>
+    <input type="email" id="email" placeholder="nombre@afempes.org">
+    <label for="password">Contraseña</label>
+    <input type="password" id="password">
+    <button class="btn-primary" onclick="iniciarSesion()">Entrar</button>
+    <div id="login-error"></div>
+  </div>
+  <div class="banda-institucional">
+    <img src="assets/banda_institucional.jpg" alt="Ministerio para la Transición Ecológica y el Reto Demográfico · Fundación Biodiversidad">
+  </div>
+</div>
+
+<!-- ============================================================= -->
+<!-- APP                                                            -->
+<!-- ============================================================= -->
+<div id="app">
+  <header>
+    <div class="marca">
+      <img class="logo-afempes-header" src="assets/logo_afempes.png" alt="AFEMPES">
+      <div class="titulo-proyecto">TuriaViu<span>Brigada de restauración ecológica · Parque Natural del Turia</span></div>
+    </div>
+    <img class="banda-header" src="assets/banda_institucional.jpg" alt="Fundación Biodiversidad">
+    <div class="usuario">
+      <span id="usuario-email"></span>
+      <button class="link" onclick="cerrarSesion()">Salir</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar" id="sidebar"></nav>
+    <main id="main-content"></main>
+  </div>
+</div>
+
+<script>
+// =====================================================================
+// CONFIGURACIÓN SUPABASE — sustituir por el proyecto real (región EU)
+// =====================================================================
+const SUPABASE_URL = 'https://aefcbhghdoflizhdelgo.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable__zHVO4OY1hxtnM6TXdFpwg_e6ubQG_E';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// =====================================================================
+// MÓDULOS (11 definidos en el esqueleto acordado)
+// Sprint 1 activo: nucleo. El resto entran en sprints siguientes.
+// =====================================================================
+const MODULOS = [
+  { id:'nucleo',        nombre:'Objetivos e indicadores', sprint:1, activo:true  },
+  { id:'cronograma',    nombre:'Cronograma',               sprint:1, activo:false },
+  { id:'rrhh',          nombre:'RRHH',                     sprint:2, activo:false },
+  { id:'brigadistas',   nombre:'Brigadistas',              sprint:2, activo:false },
+  { id:'vivero_campo',  nombre:'Vivero y campo',           sprint:3, activo:false },
+  { id:'bitacora',      nombre:'Cuaderno de bitácora',     sprint:3, activo:false },
+  { id:'incidencias',   nombre:'Incidencias',              sprint:1, activo:false },
+  { id:'actas',         nombre:'Actas de trabajo',         sprint:1, activo:false },
+  { id:'comunicacion',  nombre:'Comunicación',              sprint:4, activo:false },
+  { id:'presupuesto',   nombre:'Presupuesto',              sprint:4, activo:false },
+  { id:'comite',        nombre:'Comité e informes',        sprint:4, activo:false },
+];
+
+let moduloActual = 'nucleo';
+
+async function iniciarSesion(){
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const errorEl = document.getElementById('login-error');
+  errorEl.textContent = '';
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) { errorEl.textContent = 'No se ha podido iniciar sesión. Revisa el correo y la contraseña.'; return; }
+  mostrarApp(data.user);
+}
+
+async function cerrarSesion(){
+  await supabase.auth.signOut();
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+function mostrarApp(user){
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('usuario-email').textContent = user?.email ?? '';
+  renderSidebar();
+  cargarModulo(moduloActual);
+}
+
+function renderSidebar(){
+  const nav = document.getElementById('sidebar');
+  nav.innerHTML = MODULOS.map(m => `
+    <div class="modulo ${m.id === moduloActual ? 'activo' : ''}" onclick="cargarModulo('${m.id}')">
+      ${m.nombre}
+      ${!m.activo ? `<span class="badge-proximamente">Sprint ${m.sprint}</span>` : ''}
+    </div>
+  `).join('');
+}
+
+async function cargarModulo(id){
+  moduloActual = id;
+  renderSidebar();
+  const main = document.getElementById('main-content');
+  const modulo = MODULOS.find(m => m.id === id);
+
+  if (!modulo.activo){
+    main.innerHTML = `
+      <h2>${modulo.nombre}</h2>
+      <div class="placeholder-modulo">
+        <strong>Módulo en construcción</strong>
+        Este módulo llega en el Sprint ${modulo.sprint} del plan de trabajo.
+      </div>`;
+    return;
+  }
+
+  if (id === 'nucleo'){
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>Objetivos e indicadores</h2>
+          <p class="section-sub">Meta vs. valor real de cada objetivo específico</p>
+        </div>
+        <button class="btn-secundario" id="btn-recargar-excel" onclick="recargarDesdeExcel()">Recargar desde el Excel</button>
+      </div>
+      <div id="recarga-msg" class="section-sub"></div>
+      <div id="lista-objetivos"><p class="section-sub">Cargando...</p></div>`;
+    await cargarObjetivosEIndicadores();
+  }
+}
+
+async function recargarDesdeExcel(){
+  const ok = confirm('Esto borra los objetivos, indicadores, actividades y acciones actuales y los vuelve a cargar tal como están en el Excel M8. ¿Continuar?');
+  if (!ok) return;
+  const btn = document.getElementById('btn-recargar-excel');
+  const msg = document.getElementById('recarga-msg');
+  btn.disabled = true; btn.textContent = 'Recargando...';
+  msg.textContent = '';
+  const { error } = await supabase.rpc('cargar_seed_nucleo');
+  btn.disabled = false; btn.textContent = 'Recargar desde el Excel';
+  if (error){
+    msg.innerHTML = `<span style="color:var(--rosa-dark)">No se ha podido recargar: ${error.message}</span>`;
+    return;
+  }
+  msg.innerHTML = `<span style="color:var(--verde-bosque)">Datos recargados correctamente desde el Excel.</span>`;
+  await cargarObjetivosEIndicadores();
+}
+
+async function cargarObjetivosEIndicadores(){
+  const cont = document.getElementById('lista-objetivos');
+  const { data: objetivos, error: errObj } = await supabase
+    .from('objetivos')
+    .select('id, codigo, descripcion, indicadores(id, codigo, descripcion, unidad_medida, meta, valor_actual)')
+    .order('codigo');
+
+  if (errObj){
+    cont.innerHTML = `<p class="section-sub">No se han podido cargar los objetivos. Comprueba la conexión con Supabase (URL/clave en la configuración) y las políticas RLS.</p>`;
+    return;
+  }
+  if (!objetivos || objetivos.length === 0){
+    cont.innerHTML = `<p class="section-sub">Todavía no hay objetivos cargados. Ejecuta el script schema_sprint1.sql y añade los OE1-OE5 del Marco Lógico.</p>`;
+    return;
+  }
+
+  cont.innerHTML = objetivos.map(oe => `
+    <div class="card objetivo-card">
+      <span class="oe-codigo">${oe.codigo}</span>
+      <p class="oe-desc">${oe.descripcion}</p>
+      ${(oe.indicadores || []).map(ind => {
+        const pct = ind.meta ? Math.min(100, Math.round((ind.valor_actual / ind.meta) * 100)) : 0;
+        return `
+        <div class="indicador-row">
+          <div class="ind-label"><span>${ind.codigo} — ${ind.descripcion}</span><span>${ind.valor_actual} / ${ind.meta ?? '—'} ${ind.unidad_medida ?? ''}</span></div>
+          <div class="barra-bg"><div class="barra-fill ${pct < 50 ? 'rosa' : ''}" style="width:${pct}%"></div></div>
+        </div>`;
+      }).join('')}
+    </div>
+  `).join('');
+}
+
+// Comprobar sesión activa al cargar
+(async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) mostrarApp(session.user);
+})();
+</script>
+</body>
+</html>
