@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TuriaViu · AFEMPES</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
   :root{
     --verde-bosque:#1B4D3E;
@@ -158,6 +159,26 @@
     border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; margin-bottom:16px;
   }
   .btn-anadir:hover{ background:var(--verde-bosque-dark); }
+
+  /* ---------- MÓDULO CRONOGRAMA ---------- */
+  .lista-acciones-cronograma{ margin-top:12px; border-top:1px solid var(--borde); padding-top:10px; }
+  .fila-accion-cronograma{
+    display:flex; justify-content:space-between; align-items:center; padding:6px 0;
+    border-bottom:1px dashed var(--borde);
+  }
+  .fila-accion-cronograma:last-child{ border-bottom:none; }
+  .gantt-leyenda{ display:flex; gap:16px; margin-bottom:14px; font-size:12px; color:var(--texto-suave); }
+  .gantt-leyenda i{ display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:middle; }
+  .gantt-scroll{ overflow-x:auto; border:1px solid var(--borde); border-radius:10px; background:var(--blanco); }
+  .gantt-fila{ display:flex; align-items:center; min-width:900px; border-bottom:1px solid var(--borde); }
+  .gantt-fila:last-child{ border-bottom:none; }
+  .gantt-cabecera{ background:var(--salvia-light); font-weight:600; }
+  .gantt-etiqueta{ width:220px; flex-shrink:0; font-size:12px; padding:6px 10px; color:var(--texto); }
+  .gantt-fila-accion .gantt-etiqueta{ color:var(--texto-suave); font-size:11.5px; }
+  .gantt-pista{ display:grid; flex:1; height:30px; position:relative; }
+  .gantt-mes{ font-size:10.5px; text-align:center; color:var(--texto-suave); padding:6px 0; border-left:1px solid var(--borde); }
+  .gantt-barra{ height:16px; margin-top:7px; border-radius:5px; }
+  .gantt-barra-fina{ height:10px; margin-top:10px; opacity:0.85; }
 </style>
 </head>
 <body>
@@ -230,7 +251,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // =====================================================================
 const MODULOS = [
   { id:'nucleo',        nombre:'Objetivos e indicadores', sprint:1, activo:true  },
-  { id:'cronograma',    nombre:'Cronograma',               sprint:1, activo:false },
+  { id:'cronograma',    nombre:'Cronograma',               sprint:1, activo:true  },
   { id:'rrhh',          nombre:'RRHH',                     sprint:2, activo:false },
   { id:'brigadistas',   nombre:'Brigadistas',              sprint:2, activo:false },
   { id:'vivero_campo',  nombre:'Vivero y campo',           sprint:3, activo:false },
@@ -301,9 +322,8 @@ async function cargarModulo(id){
           <h2>Objetivos e indicadores</h2>
           <p class="section-sub">Meta vs. valor real de cada objetivo específico</p>
         </div>
-        <button class="btn-secundario" id="btn-recargar-excel" onclick="recargarDesdeExcel()">Recargar desde el Excel</button>
+        <button class="btn-anadir" style="margin:0" onclick="abrirModalImportarCsv()">Actualizar desde CSV</button>
       </div>
-      <div id="recarga-msg" class="section-sub"></div>
       <div id="lista-objetivos"><p class="section-sub">Cargando...</p></div>`;
     await cargarObjetivosEIndicadores();
   }
@@ -320,23 +340,108 @@ async function cargarModulo(id){
       <div id="contenido-comite"><p class="section-sub">Cargando...</p></div>`;
     await cambiarTabComite('miembros');
   }
+
+  if (id === 'cronograma'){
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>Cronograma</h2>
+          <p class="section-sub">Fechas previstas de actividades y acciones</p>
+        </div>
+        <div class="tabs-comite" style="margin:0; border-bottom:none;">
+          <button class="tab-comite activa" data-vista="tabla" onclick="cambiarVistaCronograma('tabla')">Tabla</button>
+          <button class="tab-comite" data-vista="gantt" onclick="cambiarVistaCronograma('gantt')">Gantt</button>
+        </div>
+      </div>
+      <div id="contenido-cronograma"><p class="section-sub">Cargando...</p></div>`;
+    await cambiarVistaCronograma('tabla');
+  }
 }
 
-async function recargarDesdeExcel(){
-  const ok = confirm('Esto borra los objetivos, indicadores, actividades y acciones actuales y los vuelve a cargar tal como están en el Excel M8. ¿Continuar?');
-  if (!ok) return;
-  const btn = document.getElementById('btn-recargar-excel');
-  const msg = document.getElementById('recarga-msg');
-  btn.disabled = true; btn.textContent = 'Recargando...';
-  msg.textContent = '';
-  const { error } = await sb.rpc('cargar_seed_nucleo');
-  btn.disabled = false; btn.textContent = 'Recargar desde el Excel';
-  if (error){
-    msg.innerHTML = `<span style="color:var(--rosa-dark)">No se ha podido recargar: ${error.message}</span>`;
-    return;
-  }
-  msg.innerHTML = `<span style="color:var(--verde-bosque)">Datos recargados correctamente desde el Excel.</span>`;
-  await cargarObjetivosEIndicadores();
+function abrirModalImportarCsv(){
+  abrirModal('Actualizar indicadores desde CSV', `
+    <p class="section-sub" style="margin-bottom:12px;">
+      El archivo debe tener estas columnas (en este orden, con encabezado):<br>
+      <code>objetivo_codigo,indicador_codigo,descripcion,unidad_medida,meta,valor_actual</code><br>
+      Si el código del objetivo + indicador ya existe, se actualiza. Si no existe, se crea como
+      indicador nuevo dentro de ese objetivo (el objetivo tiene que existir ya).
+    </p>
+    <button class="btn-secundario" onclick="descargarPlantillaCsv()">Descargar plantilla CSV</button>
+    <div style="margin:14px 0;">
+      <input type="file" id="csv-file-input" accept=".csv">
+    </div>
+    <button class="btn-primary btn-inline" onclick="procesarCsvIndicadores()">Importar</button>
+    <div id="csv-resultado" class="section-sub" style="margin-top:12px; white-space:pre-line;"></div>
+  `);
+}
+
+function descargarPlantillaCsv(){
+  const contenido = "objetivo_codigo,indicador_codigo,descripcion,unidad_medida,meta,valor_actual\nOE1,1.1,Número de personas formadas y consolidadas en la brigada,personas,5,0\n";
+  const blob = new Blob([contenido], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'plantilla_indicadores_turiaviu.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function procesarCsvIndicadores(){
+  const input = document.getElementById('csv-file-input');
+  const resultado = document.getElementById('csv-resultado');
+  if (!input.files.length){ resultado.textContent = 'Selecciona un archivo CSV primero.'; return; }
+
+  resultado.textContent = 'Procesando...';
+
+  Papa.parse(input.files[0], {
+    header: true,
+    skipEmptyLines: true,
+    complete: async (parsed) => {
+      const filas = parsed.data;
+      let creados = 0, actualizados = 0, errores = [];
+
+      // Cache de objetivos por código para no consultar de más
+      const { data: objetivos } = await sb.from('objetivos').select('id, codigo');
+      const mapaObjetivos = {};
+      (objetivos || []).forEach(o => mapaObjetivos[o.codigo.trim().toUpperCase()] = o.id);
+
+      for (const [i, fila] of filas.entries()){
+        const objCod = (fila.objetivo_codigo || '').trim().toUpperCase();
+        const indCod = (fila.indicador_codigo || '').trim();
+        if (!objCod || !indCod){ errores.push(`Fila ${i+2}: falta objetivo_codigo o indicador_codigo.`); continue; }
+
+        const objetivoId = mapaObjetivos[objCod];
+        if (!objetivoId){ errores.push(`Fila ${i+2}: objetivo "${fila.objetivo_codigo}" no existe, se ha omitido.`); continue; }
+
+        const meta = fila.meta !== '' && fila.meta != null ? parseFloat(fila.meta) : null;
+        const valorActual = fila.valor_actual !== '' && fila.valor_actual != null ? parseFloat(fila.valor_actual) : 0;
+
+        const { data: existente } = await sb
+          .from('indicadores')
+          .select('id')
+          .eq('objetivo_id', objetivoId)
+          .eq('codigo', indCod)
+          .maybeSingle();
+
+        const { error } = await sb.from('indicadores').upsert({
+          objetivo_id: objetivoId,
+          codigo: indCod,
+          descripcion: fila.descripcion || '',
+          unidad_medida: fila.unidad_medida || null,
+          meta,
+          valor_actual: valorActual,
+        }, { onConflict: 'objetivo_id,codigo' });
+
+        if (error){ errores.push(`Fila ${i+2}: ${error.message}`); continue; }
+        existente ? actualizados++ : creados++;
+      }
+
+      let resumen = `Importación completa: ${creados} indicador(es) nuevo(s), ${actualizados} actualizado(s).`;
+      if (errores.length) resumen += `\n\nAvisos:\n` + errores.join('\n');
+      resultado.textContent = resumen;
+      await cargarObjetivosEIndicadores();
+    },
+    error: (err) => { resultado.textContent = 'Error al leer el CSV: ' + err.message; }
+  });
 }
 
 async function cargarObjetivosEIndicadores(){
@@ -616,7 +721,165 @@ async function cambiarEstadoCompromiso(id, estado){
   await renderSeguimientoComite(document.getElementById('contenido-comite'));
 }
 
-// Comprobar sesión activa al cargar
+// =====================================================================
+// MÓDULO: CRONOGRAMA
+// =====================================================================
+let vistaCronogramaActual = 'tabla';
+
+async function cambiarVistaCronograma(vista){
+  vistaCronogramaActual = vista;
+  document.querySelectorAll('[data-vista]').forEach(b => b.classList.toggle('activa', b.dataset.vista === vista));
+  const cont = document.getElementById('contenido-cronograma');
+  cont.innerHTML = '<p class="section-sub">Cargando...</p>';
+  const { data: actividades, error } = await sb
+    .from('actividades')
+    .select('id, codigo, nombre, fecha_inicio_prevista, fecha_fin_prevista, estado, acciones(id, codigo, descripcion, fecha_inicio_prevista, fecha_fin_prevista, estado)')
+    .order('codigo');
+  if (error){ cont.innerHTML = `<p class="section-sub">No se ha podido cargar el cronograma: ${error.message}</p>`; return; }
+
+  if (vista === 'tabla') renderCronogramaTabla(cont, actividades);
+  else await renderCronogramaGantt(cont, actividades);
+}
+
+function badgeEstado(estado){
+  const etiquetas = { planificada:'Planificada', en_curso:'En curso', completada:'Completada', retrasada:'Retrasada' };
+  return `<span class="select-estado estado-${estado === 'completada' ? 'cerrado' : estado === 'en_curso' ? 'en_curso' : 'pendiente'}">${etiquetas[estado] || estado}</span>`;
+}
+
+function renderCronogramaTabla(cont, actividades){
+  cont.innerHTML = actividades.map(a => `
+    <div class="card">
+      <div class="fila-miembro">
+        <div>
+          <span class="oe-codigo">${a.codigo}</span> <strong style="font-size:13px;">${a.nombre}</strong>
+          <p class="section-sub" style="margin:4px 0 0;">
+            ${a.fecha_inicio_prevista ?? '— sin fecha —'} → ${a.fecha_fin_prevista ?? '— sin fecha —'}
+          </p>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          ${badgeEstado(a.estado)}
+          <button class="btn-secundario" onclick="abrirModalFechas('actividad','${a.id}','${a.codigo}: ${a.nombre.replace(/'/g,"\\'")}','${a.fecha_inicio_prevista ?? ''}','${a.fecha_fin_prevista ?? ''}','${a.estado}')">Editar fechas</button>
+        </div>
+      </div>
+      ${(a.acciones || []).length > 0 ? `
+        <div class="lista-acciones-cronograma">
+          ${a.acciones.map(acc => `
+            <div class="fila-accion-cronograma">
+              <div>
+                <span class="oe-codigo" style="background:var(--fondo)">${acc.codigo}</span>
+                <span style="font-size:12.5px;">${acc.descripcion}</span>
+                <p class="section-sub" style="margin:2px 0 0;">${acc.fecha_inicio_prevista ?? '— sin fecha —'} → ${acc.fecha_fin_prevista ?? '— sin fecha —'}</p>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                ${badgeEstado(acc.estado)}
+                <button class="btn-secundario" onclick="abrirModalFechas('accion','${acc.id}','${acc.codigo}: ${acc.descripcion.replace(/'/g,"\\'").slice(0,60)}','${acc.fecha_inicio_prevista ?? ''}','${acc.fecha_fin_prevista ?? ''}','${acc.estado}')">Editar</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>` : ''}
+    </div>
+  `).join('');
+}
+
+function abrirModalFechas(tipo, id, etiqueta, fechaInicio, fechaFin, estado){
+  abrirModal(`Fechas — ${etiqueta}`, `
+    <div class="form-grid">
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de inicio</label>
+        <input id="cr-fecha-inicio" type="date" value="${fechaInicio}">
+      </div>
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de fin</label>
+        <input id="cr-fecha-fin" type="date" value="${fechaFin}">
+      </div>
+      <select id="cr-estado">
+        <option value="planificada" ${estado==='planificada'?'selected':''}>Planificada</option>
+        <option value="en_curso" ${estado==='en_curso'?'selected':''}>En curso</option>
+        <option value="completada" ${estado==='completada'?'selected':''}>Completada</option>
+        <option value="retrasada" ${estado==='retrasada'?'selected':''}>Retrasada</option>
+      </select>
+    </div>
+    <button class="btn-primary btn-inline" onclick="guardarFechas('${tipo}','${id}')">Guardar</button>
+    <div id="cronograma-msg" class="section-sub"></div>
+  `);
+}
+
+async function guardarFechas(tipo, id){
+  const msg = document.getElementById('cronograma-msg');
+  const tabla = tipo === 'actividad' ? 'actividades' : 'acciones';
+  const { error } = await sb.from(tabla).update({
+    fecha_inicio_prevista: document.getElementById('cr-fecha-inicio').value || null,
+    fecha_fin_prevista: document.getElementById('cr-fecha-fin').value || null,
+    estado: document.getElementById('cr-estado').value,
+  }).eq('id', id);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await cambiarVistaCronograma(vistaCronogramaActual);
+}
+
+// --------- VISTA GANTT ---------
+async function renderCronogramaGantt(cont, actividades){
+  const { data: proyecto } = await sb.from('proyecto').select('fecha_inicio, fecha_fin').limit(1).single();
+  const inicio = new Date(proyecto.fecha_inicio);
+  const fin = new Date(proyecto.fecha_fin);
+  const meses = [];
+  let cursor = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
+  while (cursor <= fin){
+    meses.push(new Date(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  const nombresMes = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const totalCols = meses.length;
+
+  function offsetYSpan(fIni, fFin){
+    if (!fIni || !fFin) return null;
+    const di = new Date(fIni), df = new Date(fFin);
+    const colIni = (di.getFullYear() - inicio.getFullYear()) * 12 + (di.getMonth() - inicio.getMonth());
+    const colFin = (df.getFullYear() - inicio.getFullYear()) * 12 + (df.getMonth() - inicio.getMonth());
+    return { offset: Math.max(0, colIni), span: Math.max(1, colFin - colIni + 1) };
+  }
+
+  const colorEstado = { planificada:'var(--salvia)', en_curso:'var(--rosa)', completada:'var(--verde-bosque)', retrasada:'var(--rosa-dark)' };
+
+  let filas = '';
+  actividades.forEach(a => {
+    const pos = offsetYSpan(a.fecha_inicio_prevista, a.fecha_fin_prevista);
+    filas += `
+      <div class="gantt-fila">
+        <div class="gantt-etiqueta"><strong>${a.codigo}</strong> ${a.nombre.slice(0,40)}${a.nombre.length>40?'…':''}</div>
+        <div class="gantt-pista" style="grid-template-columns: repeat(${totalCols}, 1fr);">
+          ${pos ? `<div class="gantt-barra" style="grid-column: ${pos.offset+1} / span ${pos.span}; background:${colorEstado[a.estado]};" title="${a.fecha_inicio_prevista} → ${a.fecha_fin_prevista}"></div>` : ''}
+        </div>
+      </div>`;
+    (a.acciones || []).forEach(acc => {
+      const posAcc = offsetYSpan(acc.fecha_inicio_prevista, acc.fecha_fin_prevista);
+      filas += `
+        <div class="gantt-fila gantt-fila-accion">
+          <div class="gantt-etiqueta">　${acc.codigo} ${acc.descripcion.slice(0,32)}${acc.descripcion.length>32?'…':''}</div>
+          <div class="gantt-pista" style="grid-template-columns: repeat(${totalCols}, 1fr);">
+            ${posAcc ? `<div class="gantt-barra gantt-barra-fina" style="grid-column: ${posAcc.offset+1} / span ${posAcc.span}; background:${colorEstado[acc.estado]};" title="${acc.fecha_inicio_prevista} → ${acc.fecha_fin_prevista}"></div>` : ''}
+          </div>
+        </div>`;
+    });
+  });
+
+  cont.innerHTML = `
+    <div class="gantt-leyenda">
+      <span><i style="background:var(--salvia)"></i> Planificada</span>
+      <span><i style="background:var(--rosa)"></i> En curso</span>
+      <span><i style="background:var(--verde-bosque)"></i> Completada</span>
+      <span><i style="background:var(--rosa-dark)"></i> Retrasada</span>
+    </div>
+    <div class="gantt-scroll">
+      <div class="gantt-fila gantt-cabecera">
+        <div class="gantt-etiqueta"></div>
+        <div class="gantt-pista" style="grid-template-columns: repeat(${totalCols}, 1fr);">
+          ${meses.map(m => `<div class="gantt-mes">${nombresMes[m.getMonth()]} ${String(m.getFullYear()).slice(2)}</div>`).join('')}
+        </div>
+      </div>
+      ${filas || '<p class="section-sub">No hay actividades cargadas.</p>'}
+    </div>`;
+}
 (async () => {
   const { data: { session } } = await sb.auth.getSession();
   if (session) mostrarApp(session.user);
