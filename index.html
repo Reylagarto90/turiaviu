@@ -32,7 +32,7 @@
     min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
     padding:24px; gap:28px;
   }
-  #login-screen img.logo-afempes{ height:70px; }
+  #login-screen img.logo-afempes{ height:120px; }
   .login-card{
     background:var(--blanco); border:1px solid var(--borde); border-radius:16px;
     padding:36px 32px; width:100%; max-width:380px; box-shadow:0 2px 16px rgba(27,77,62,0.06);
@@ -163,7 +163,7 @@
 // =====================================================================
 const SUPABASE_URL = 'https://aefcbhghdoflizhdelgo.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable__zHVO4OY1hxtnM6TXdFpwg_e6ubQG_E';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // =====================================================================
 // MÓDULOS (11 definidos en el esqueleto acordado)
@@ -190,13 +190,13 @@ async function iniciarSesion(){
   const password = document.getElementById('password').value;
   const errorEl = document.getElementById('login-error');
   errorEl.textContent = '';
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if (error) { errorEl.textContent = 'No se ha podido iniciar sesión. Revisa el correo y la contraseña.'; return; }
   mostrarApp(data.user);
 }
 
 async function cerrarSesion(){
-  await supabase.auth.signOut();
+  await sb.auth.signOut();
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
 }
@@ -257,7 +257,7 @@ async function recargarDesdeExcel(){
   const msg = document.getElementById('recarga-msg');
   btn.disabled = true; btn.textContent = 'Recargando...';
   msg.textContent = '';
-  const { error } = await supabase.rpc('cargar_seed_nucleo');
+  const { error } = await sb.rpc('cargar_seed_nucleo');
   btn.disabled = false; btn.textContent = 'Recargar desde el Excel';
   if (error){
     msg.innerHTML = `<span style="color:var(--rosa-dark)">No se ha podido recargar: ${error.message}</span>`;
@@ -269,7 +269,7 @@ async function recargarDesdeExcel(){
 
 async function cargarObjetivosEIndicadores(){
   const cont = document.getElementById('lista-objetivos');
-  const { data: objetivos, error: errObj } = await supabase
+  const { data: objetivos, error: errObj } = await sb
     .from('objetivos')
     .select('id, codigo, descripcion, indicadores(id, codigo, descripcion, unidad_medida, meta, valor_actual)')
     .order('codigo');
@@ -301,7 +301,7 @@ async function cargarObjetivosEIndicadores(){
 
 // Comprobar sesión activa al cargar
 (async () => {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await sb.auth.getSession();
   if (session) mostrarApp(session.user);
 })();
 </script>
