@@ -179,6 +179,10 @@
   .gantt-mes{ font-size:10.5px; text-align:center; color:var(--texto-suave); padding:6px 0; border-left:1px solid var(--borde); }
   .gantt-barra{ height:16px; margin-top:7px; border-radius:5px; }
   .gantt-barra-fina{ height:10px; margin-top:10px; opacity:0.85; }
+  .registro-seguimiento{ padding:10px 0; border-bottom:1px solid var(--borde); }
+  .registro-seguimiento:last-child{ border-bottom:none; }
+  .btn-mini{ padding:5px 10px; font-size:12px; }
+  .form-convertir-incidencia{ background:var(--fondo); border-radius:8px; padding:10px; margin-top:8px; }
 </style>
 </head>
 <body>
@@ -477,8 +481,121 @@ async function cargarObjetivosEIndicadores(){
 }
 
 // =====================================================================
-// MODAL GENÉRICO
+// SEGUIMIENTO DE ACTUACIONES (por actividad o por acción)
 // =====================================================================
+async function abrirModalSeguimiento(actividadId, accionId, etiqueta){
+  const cuerpo = await construirCuerpoSeguimiento(actividadId, accionId);
+  abrirModal(`Seguimiento — ${etiqueta}`, cuerpo);
+}
+
+async function construirCuerpoSeguimiento(actividadId, accionId){
+  let query = sb.from('seguimiento_actividad')
+    .select('*, indicadores(codigo, descripcion)')
+    .eq('actividad_id', actividadId)
+    .order('fecha', { ascending:false });
+  query = accionId ? query.eq('accion_id', accionId) : query.is('accion_id', null);
+  const { data: registros, error } = await query;
+
+  const { data: indicadores } = await sb
+    .from('indicadores')
+    .select('id, codigo, descripcion, objetivos(codigo)')
+    .order('codigo');
+
+  const listaHtml = error
+    ? `<p class="section-sub">Error al cargar: ${error.message}</p>`
+    : (!registros || registros.length === 0)
+      ? `<p class="section-sub">Todavía no hay registros de seguimiento.</p>`
+      : registros.map(r => `
+        <div class="registro-seguimiento" id="reg-${r.id}">
+          <p class="section-sub" style="margin:0 0 2px;">${r.fecha}${r.indicadores ? ` · vinculado a ${r.indicadores.codigo}` : ''}</p>
+          <p style="font-size:13px; margin:0 0 6px;">${r.descripcion}</p>
+          <button class="btn-secundario btn-mini" onclick="mostrarFormConvertirIncidencia('${r.id}')">Convertir en incidencia</button>
+          <div id="conv-${r.id}" class="form-convertir-incidencia" style="display:none;">
+            <div class="form-grid" style="margin-top:8px;">
+              <select id="conv-tipo-${r.id}">
+                <option value="tecnica">Técnica</option>
+                <option value="salud_seguridad">Salud/seguridad</option>
+                <option value="administrativa_permisos">Administrativa/permisos</option>
+                <option value="climatica">Climática</option>
+                <option value="rrhh">RRHH</option>
+                <option value="brigadista">Brigadista</option>
+                <option value="otra">Otra</option>
+              </select>
+              <select id="conv-gravedad-${r.id}">
+                <option value="1">Leve</option>
+                <option value="2">Moderada</option>
+                <option value="3">Grave</option>
+              </select>
+            </div>
+            <button class="btn-primary btn-inline" onclick="confirmarConvertirIncidencia('${r.id}', '${actividadId}')">Crear incidencia</button>
+          </div>
+        </div>
+      `).join('');
+
+  return `
+    <div class="card">
+      <h3 class="titulo-card">Nuevo registro</h3>
+      <textarea id="sg-descripcion" placeholder="¿Qué se ha hecho / qué ha pasado?" class="textarea-comite"></textarea>
+      <div class="form-grid">
+        <input id="sg-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+        <select id="sg-indicador">
+          <option value="">Sin vincular a un indicador</option>
+          ${(indicadores || []).map(i => `<option value="${i.id}">${i.objetivos?.codigo ?? ''} · ${i.codigo} — ${i.descripcion.slice(0,40)}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn-primary btn-inline" onclick="crearSeguimiento('${actividadId}', ${accionId ? `'${accionId}'` : 'null'})">Guardar registro</button>
+      <div id="seguimiento-msg" class="section-sub"></div>
+    </div>
+    <div id="lista-seguimiento">${listaHtml}</div>`;
+}
+
+async function crearSeguimiento(actividadId, accionId){
+  const msg = document.getElementById('seguimiento-msg');
+  const descripcion = document.getElementById('sg-descripcion').value.trim();
+  if (!descripcion){ msg.textContent = 'Describe qué se ha hecho antes de guardar.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+
+  const { error } = await sb.from('seguimiento_actividad').insert({
+    proyecto_id: proyecto.id,
+    actividad_id: actividadId,
+    accion_id: accionId,
+    fecha: document.getElementById('sg-fecha').value,
+    descripcion,
+    indicador_id: document.getElementById('sg-indicador').value || null,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+
+  const cuerpo = await construirCuerpoSeguimiento(actividadId, accionId);
+  document.getElementById('modal-cuerpo').innerHTML = cuerpo;
+}
+
+function mostrarFormConvertirIncidencia(registroId){
+  const div = document.getElementById('conv-' + registroId);
+  div.style.display = div.style.display === 'none' ? 'block' : 'none';
+}
+
+async function confirmarConvertirIncidencia(registroId, actividadId){
+  const { data: registro } = await sb.from('seguimiento_actividad').select('descripcion, indicador_id').eq('id', registroId).single();
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+  const tipo = document.getElementById('conv-tipo-' + registroId).value;
+  const gravedad = document.getElementById('conv-gravedad-' + registroId).value;
+
+  const { error } = await sb.from('incidencias').insert({
+    proyecto_id: proyecto.id,
+    tipo,
+    gravedad,
+    descripcion: registro.descripcion,
+    actividad_id: actividadId,
+    indicador_id: registro.indicador_id,
+  });
+
+  const contenedor = document.getElementById('conv-' + registroId);
+  if (error){
+    contenedor.innerHTML = `<p class="section-sub" style="color:var(--rosa-dark)">Error: ${error.message}</p>`;
+  } else {
+    contenedor.innerHTML = `<p class="section-sub" style="color:var(--verde-bosque)">Incidencia creada correctamente.</p>`;
+  }
+}
 function abrirModal(titulo, cuerpoHtml){
   document.getElementById('modal-titulo').textContent = titulo;
   document.getElementById('modal-cuerpo').innerHTML = cuerpoHtml;
@@ -747,6 +864,10 @@ function badgeEstado(estado){
 }
 
 function renderCronogramaTabla(cont, actividades){
+  if (!actividades || actividades.length === 0){
+    cont.innerHTML = `<p class="section-sub">Todavía no hay actividades cargadas. Ejecuta <code>select cargar_seed_nucleo();</code> en el SQL Editor de Supabase para cargarlas desde el Excel.</p>`;
+    return;
+  }
   cont.innerHTML = actividades.map(a => `
     <div class="card">
       <div class="fila-miembro">
@@ -758,6 +879,7 @@ function renderCronogramaTabla(cont, actividades){
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
           ${badgeEstado(a.estado)}
+          <button class="btn-secundario" onclick="abrirModalSeguimiento('${a.id}', null, '${a.codigo}: ${a.nombre.replace(/'/g,"\\'")}')">Seguimiento</button>
           <button class="btn-secundario" onclick="abrirModalFechas('actividad','${a.id}','${a.codigo}: ${a.nombre.replace(/'/g,"\\'")}','${a.fecha_inicio_prevista ?? ''}','${a.fecha_fin_prevista ?? ''}','${a.estado}')">Editar fechas</button>
         </div>
       </div>
@@ -772,6 +894,7 @@ function renderCronogramaTabla(cont, actividades){
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 ${badgeEstado(acc.estado)}
+                <button class="btn-secundario" onclick="abrirModalSeguimiento('${a.id}', '${acc.id}', '${acc.codigo}: ${acc.descripcion.replace(/'/g,"\\'").slice(0,60)}')">Seguimiento</button>
                 <button class="btn-secundario" onclick="abrirModalFechas('accion','${acc.id}','${acc.codigo}: ${acc.descripcion.replace(/'/g,"\\'").slice(0,60)}','${acc.fecha_inicio_prevista ?? ''}','${acc.fecha_fin_prevista ?? ''}','${acc.estado}')">Editar</button>
               </div>
             </div>
