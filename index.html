@@ -138,9 +138,41 @@
   .select-estado.estado-pendiente{ background:var(--salvia-light); }
   .select-estado.estado-en_curso{ background:#FCEFD9; }
   .select-estado.estado-cerrado{ background:var(--salvia); }
+
+  /* ---------- MODAL ---------- */
+  #modal-overlay{
+    display:none; position:fixed; inset:0; background:rgba(15,51,42,0.45);
+    align-items:center; justify-content:center; z-index:100; padding:20px;
+  }
+  #modal-overlay.abierto{ display:flex; }
+  #modal-box{
+    background:var(--blanco); border-radius:14px; padding:24px; width:100%; max-width:520px;
+    max-height:85vh; overflow-y:auto; box-shadow:0 8px 30px rgba(15,51,42,0.2);
+  }
+  #modal-box h3{ margin:0 0 14px; color:var(--verde-bosque-dark); font-size:16px; }
+  #modal-box .modal-cerrar{
+    float:right; background:none; border:none; font-size:18px; color:var(--texto-suave); cursor:pointer; line-height:1;
+  }
+  .btn-anadir{
+    background:var(--verde-bosque); color:var(--blanco); border:none; padding:8px 16px;
+    border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; margin-bottom:16px;
+  }
+  .btn-anadir:hover{ background:var(--verde-bosque-dark); }
 </style>
 </head>
 <body>
+
+<!-- ============================================================= -->
+<!-- MODAL GENÉRICO (compartido por los formularios de alta)        -->
+<!-- ============================================================= -->
+<div id="modal-overlay" onclick="if(event.target === this) cerrarModal()">
+  <div id="modal-box">
+    <button class="modal-cerrar" onclick="cerrarModal()">&times;</button>
+    <h3 id="modal-titulo"></h3>
+    <div id="modal-cuerpo"></div>
+  </div>
+</div>
+
 
 <!-- ============================================================= -->
 <!-- LOGIN                                                          -->
@@ -340,6 +372,19 @@ async function cargarObjetivosEIndicadores(){
 }
 
 // =====================================================================
+// MODAL GENÉRICO
+// =====================================================================
+function abrirModal(titulo, cuerpoHtml){
+  document.getElementById('modal-titulo').textContent = titulo;
+  document.getElementById('modal-cuerpo').innerHTML = cuerpoHtml;
+  document.getElementById('modal-overlay').classList.add('abierto');
+}
+function cerrarModal(){
+  document.getElementById('modal-overlay').classList.remove('abierto');
+  document.getElementById('modal-cuerpo').innerHTML = '';
+}
+
+// =====================================================================
 // MÓDULO: COMITÉ E INFORMES
 // =====================================================================
 let tabComiteActual = 'miembros';
@@ -360,22 +405,7 @@ async function renderMiembrosComite(cont){
   if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar los miembros: ${error.message}</p>`; return; }
 
   cont.innerHTML = `
-    <div class="card">
-      <h3 class="titulo-card">Añadir miembro</h3>
-      <div class="form-grid">
-        <input id="nm-nombre" placeholder="Nombre y apellidos">
-        <input id="nm-entidad" placeholder="Entidad a la que representa">
-        <input id="nm-perfil" placeholder="Perfil / cargo">
-        <select id="nm-rol">
-          <option value="vocal">Vocal</option>
-          <option value="presidencia">Presidencia</option>
-          <option value="secretaria">Secretaría</option>
-        </select>
-        <input id="nm-fecha-alta" type="date" value="${new Date().toISOString().slice(0,10)}">
-      </div>
-      <button class="btn-primary btn-inline" onclick="crearMiembroComite()">Añadir</button>
-      <div id="miembro-msg" class="section-sub"></div>
-    </div>
+    <button class="btn-anadir" onclick="abrirModalMiembro()">+ Añadir miembro</button>
     <div id="lista-miembros">
       ${miembros.length === 0 ? '<p class="section-sub">Todavía no hay miembros registrados.</p>' : miembros.map(m => `
         <div class="card fila-miembro">
@@ -394,6 +424,24 @@ async function renderMiembrosComite(cont){
     </div>`;
 }
 
+function abrirModalMiembro(){
+  abrirModal('Añadir miembro del comité', `
+    <div class="form-grid">
+      <input id="nm-nombre" placeholder="Nombre y apellidos">
+      <input id="nm-entidad" placeholder="Entidad a la que representa">
+      <input id="nm-perfil" placeholder="Perfil / cargo">
+      <select id="nm-rol">
+        <option value="vocal">Vocal</option>
+        <option value="presidencia">Presidencia</option>
+        <option value="secretaria">Secretaría</option>
+      </select>
+      <input id="nm-fecha-alta" type="date" value="${new Date().toISOString().slice(0,10)}">
+    </div>
+    <button class="btn-primary btn-inline" onclick="crearMiembroComite()">Guardar</button>
+    <div id="miembro-msg" class="section-sub"></div>
+  `);
+}
+
 async function crearMiembroComite(){
   const nombre = document.getElementById('nm-nombre').value.trim();
   const msg = document.getElementById('miembro-msg');
@@ -408,6 +456,7 @@ async function crearMiembroComite(){
     fecha_alta: document.getElementById('nm-fecha-alta').value,
   });
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
   await renderMiembrosComite(document.getElementById('contenido-comite'));
 }
 
@@ -424,33 +473,11 @@ async function renderActasComite(cont){
     .from('actas_comite')
     .select('*, acta_comite_asistentes(miembro_id, comite_miembros(nombre))')
     .order('fecha', { ascending:false });
-  const { data: miembros } = await sb.from('comite_miembros').select('id, nombre').eq('activo', true);
 
   if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar las actas: ${error.message}</p>`; return; }
 
   cont.innerHTML = `
-    <div class="card">
-      <h3 class="titulo-card">Nueva acta</h3>
-      <div class="form-grid">
-        <input id="na-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
-        <select id="na-tipo">
-          <option value="constitucion">Constitución</option>
-          <option value="seguimiento_semestral" selected>Seguimiento semestral</option>
-          <option value="extraordinaria">Extraordinaria</option>
-        </select>
-        <input id="na-documento" placeholder="Enlace al documento firmado (opcional)">
-      </div>
-      <textarea id="na-orden" placeholder="Orden del día" class="textarea-comite"></textarea>
-      <textarea id="na-acuerdos" placeholder="Acuerdos" class="textarea-comite"></textarea>
-      <p class="section-sub" style="margin:10px 0 4px">Asistentes:</p>
-      <div class="checks-asistentes">
-        ${(miembros || []).map(m => `
-          <label class="check-asistente"><input type="checkbox" value="${m.id}" class="chk-asistente-nueva"> ${m.nombre}</label>
-        `).join('') || '<span class="section-sub">Añade miembros primero en la pestaña Miembros.</span>'}
-      </div>
-      <button class="btn-primary btn-inline" onclick="crearActaComite()">Guardar acta</button>
-      <div id="acta-msg" class="section-sub"></div>
-    </div>
+    <button class="btn-anadir" onclick="abrirModalActa()">+ Nueva acta</button>
     <div>
       ${(!actas || actas.length === 0) ? '<p class="section-sub">Todavía no hay actas registradas.</p>' : actas.map(a => `
         <div class="card">
@@ -462,6 +489,31 @@ async function renderActasComite(cont){
         </div>
       `).join('')}
     </div>`;
+}
+
+async function abrirModalActa(){
+  const { data: miembros } = await sb.from('comite_miembros').select('id, nombre').eq('activo', true);
+  abrirModal('Nueva acta del comité', `
+    <div class="form-grid">
+      <input id="na-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <select id="na-tipo">
+        <option value="constitucion">Constitución</option>
+        <option value="seguimiento_semestral" selected>Seguimiento semestral</option>
+        <option value="extraordinaria">Extraordinaria</option>
+      </select>
+      <input id="na-documento" placeholder="Enlace al documento firmado (opcional)">
+    </div>
+    <textarea id="na-orden" placeholder="Orden del día" class="textarea-comite"></textarea>
+    <textarea id="na-acuerdos" placeholder="Acuerdos" class="textarea-comite"></textarea>
+    <p class="section-sub" style="margin:10px 0 4px">Asistentes:</p>
+    <div class="checks-asistentes">
+      ${(miembros || []).map(m => `
+        <label class="check-asistente"><input type="checkbox" value="${m.id}" class="chk-asistente-nueva"> ${m.nombre}</label>
+      `).join('') || '<span class="section-sub">Añade miembros primero en la pestaña Miembros.</span>'}
+    </div>
+    <button class="btn-primary btn-inline" onclick="crearActaComite()">Guardar acta</button>
+    <div id="acta-msg" class="section-sub"></div>
+  `);
 }
 
 async function crearActaComite(){
@@ -485,6 +537,7 @@ async function crearActaComite(){
     await sb.from('acta_comite_asistentes').insert(filas);
   }
 
+  cerrarModal();
   await renderActasComite(document.getElementById('contenido-comite'));
 }
 
@@ -494,29 +547,11 @@ async function renderSeguimientoComite(cont){
     .from('compromisos_comite')
     .select('*, actas_comite(fecha, tipo), comite_miembros(nombre)')
     .order('fecha_limite', { ascending:true, nullsFirst:false });
-  const { data: actas } = await sb.from('actas_comite').select('id, fecha, tipo').order('fecha', { ascending:false });
-  const { data: miembros } = await sb.from('comite_miembros').select('id, nombre').eq('activo', true);
 
   if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar los compromisos: ${error.message}</p>`; return; }
 
   cont.innerHTML = `
-    <div class="card">
-      <h3 class="titulo-card">Nuevo compromiso</h3>
-      <div class="form-grid">
-        <select id="ns-acta">
-          ${(actas || []).map(a => `<option value="${a.id}">${a.fecha} · ${a.tipo.replace('_',' ')}</option>`).join('') || '<option value="">Crea un acta primero</option>'}
-        </select>
-        <select id="ns-responsable">
-          <option value="">Responsable externo (escribir abajo)</option>
-          ${(miembros || []).map(m => `<option value="${m.id}">${m.nombre}</option>`).join('')}
-        </select>
-        <input id="ns-responsable-nombre" placeholder="Nombre del responsable (si no está en la lista)">
-        <input id="ns-fecha-limite" type="date">
-      </div>
-      <textarea id="ns-descripcion" placeholder="Descripción del compromiso" class="textarea-comite"></textarea>
-      <button class="btn-primary btn-inline" onclick="crearCompromisoComite()">Añadir compromiso</button>
-      <div id="compromiso-msg" class="section-sub"></div>
-    </div>
+    <button class="btn-anadir" onclick="abrirModalCompromiso()">+ Nuevo compromiso</button>
     <div>
       ${(!compromisos || compromisos.length === 0) ? '<p class="section-sub">Todavía no hay compromisos registrados.</p>' : compromisos.map(c => `
         <div class="card fila-miembro">
@@ -537,6 +572,27 @@ async function renderSeguimientoComite(cont){
     </div>`;
 }
 
+async function abrirModalCompromiso(){
+  const { data: actas } = await sb.from('actas_comite').select('id, fecha, tipo').order('fecha', { ascending:false });
+  const { data: miembros } = await sb.from('comite_miembros').select('id, nombre').eq('activo', true);
+  abrirModal('Nuevo compromiso de seguimiento', `
+    <div class="form-grid">
+      <select id="ns-acta">
+        ${(actas || []).map(a => `<option value="${a.id}">${a.fecha} · ${a.tipo.replace('_',' ')}</option>`).join('') || '<option value="">Crea un acta primero</option>'}
+      </select>
+      <select id="ns-responsable">
+        <option value="">Responsable externo (escribir abajo)</option>
+        ${(miembros || []).map(m => `<option value="${m.id}">${m.nombre}</option>`).join('')}
+      </select>
+      <input id="ns-responsable-nombre" placeholder="Nombre del responsable (si no está en la lista)">
+      <input id="ns-fecha-limite" type="date">
+    </div>
+    <textarea id="ns-descripcion" placeholder="Descripción del compromiso" class="textarea-comite"></textarea>
+    <button class="btn-primary btn-inline" onclick="crearCompromisoComite()">Guardar</button>
+    <div id="compromiso-msg" class="section-sub"></div>
+  `);
+}
+
 async function crearCompromisoComite(){
   const msg = document.getElementById('compromiso-msg');
   const actaId = document.getElementById('ns-acta').value;
@@ -551,6 +607,7 @@ async function crearCompromisoComite(){
     fecha_limite: document.getElementById('ns-fecha-limite').value || null,
   });
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
   await renderSeguimientoComite(document.getElementById('contenido-comite'));
 }
 
