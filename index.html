@@ -191,7 +191,7 @@ async function iniciarSesion(){
   const errorEl = document.getElementById('login-error');
   errorEl.textContent = '';
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) { errorEl.textContent = 'No se ha podido iniciar sesión. Revisa el correo y la contraseña.'; return; }
+  if (error) { errorEl.textContent = 'Error de Supabase: ' + error.message; return; }
   mostrarApp(data.user);
 }
 
