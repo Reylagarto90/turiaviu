@@ -597,9 +597,18 @@ async function cargarObjetivosEIndicadores(){
     return;
   }
 
-  cont.innerHTML = objetivos.map(oe => `
+  cont.innerHTML = objetivos.map(oe => {
+    const indicadoresConMeta = (oe.indicadores || []).filter(ind => ind.meta);
+    const pctsIndividuales = indicadoresConMeta.map(ind => Math.min(100, (ind.valor_actual / ind.meta) * 100));
+    const pctObjetivo = pctsIndividuales.length ? Math.round(pctsIndividuales.reduce((a,b) => a+b, 0) / pctsIndividuales.length) : 0;
+    const semObjetivo = semaforoLogro(pctObjetivo);
+    return `
     <div class="card objetivo-card">
-      <span class="oe-codigo">${oe.codigo}</span>
+      <div class="fila-miembro" style="align-items:center;">
+        <span class="oe-codigo">${oe.codigo}</span>
+        <strong style="font-size:14px; color:var(--verde-bosque-dark);">${pctObjetivo}% conseguido</strong>
+      </div>
+      <div class="barra-bg" style="height:10px; margin:8px 0 12px;"><div class="barra-fill" style="width:${pctObjetivo}%; background:${semObjetivo.color};"></div></div>
       <p class="oe-desc">${oe.descripcion}</p>
       ${(oe.indicadores || []).map(ind => {
         const pct = ind.meta ? Math.min(100, Math.round((ind.valor_actual / ind.meta) * 100)) : 0;
@@ -609,8 +618,8 @@ async function cargarObjetivosEIndicadores(){
           <div class="barra-bg"><div class="barra-fill ${pct < 50 ? 'rosa' : ''}" style="width:${pct}%"></div></div>
         </div>`;
       }).join('')}
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 // =====================================================================
@@ -1648,6 +1657,12 @@ function semaforoPct(pct){
   if (pct >= 100) return { color: 'var(--rosa-dark)', texto: 'Rojo' };
   if (pct >= 70) return { color: '#D9A441', texto: 'Ámbar' };
   return { color: 'var(--verde-bosque)', texto: 'Verde' };
+}
+
+function semaforoLogro(pct){
+  if (pct >= 70) return { color: 'var(--verde-bosque)', texto: 'Verde' };
+  if (pct >= 40) return { color: '#D9A441', texto: 'Ámbar' };
+  return { color: 'var(--rosa-dark)', texto: 'Rojo' };
 }
 
 async function renderPresupuesto(){
