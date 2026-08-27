@@ -257,8 +257,8 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const MODULOS = [
   { id:'nucleo',        nombre:'Objetivos e indicadores', sprint:1, activo:true  },
   { id:'cronograma',    nombre:'Cronograma',               sprint:1, activo:true  },
-  { id:'rrhh',          nombre:'RRHH',                     sprint:2, activo:false },
-  { id:'brigadistas',   nombre:'Brigadistas',              sprint:2, activo:false },
+  { id:'rrhh',          nombre:'RRHH',                     sprint:2, activo:true  },
+  { id:'brigadistas',   nombre:'Brigadistas',              sprint:2, activo:true  },
   { id:'vivero_campo',  nombre:'Vivero y campo',           sprint:3, activo:false },
   { id:'bitacora',      nombre:'Cuaderno de bitácora',     sprint:3, activo:false },
   { id:'incidencias',   nombre:'Incidencias',              sprint:1, activo:true  },
@@ -387,6 +387,38 @@ async function cargarModulo(id){
       </div>
       <div id="contenido-incidencias"><p class="section-sub">Cargando...</p></div>`;
     await renderIncidencias('todas');
+  }
+
+  if (id === 'rrhh'){
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>RRHH</h2>
+          <p class="section-sub">Personal de las entidades que ejecutan el proyecto</p>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-anadir" style="margin:0" onclick="abrirModalCsvGenerico('rrhh')">Actualizar desde CSV</button>
+          <button class="btn-anadir" style="margin:0" onclick="abrirModalRrhh()">+ Añadir persona</button>
+        </div>
+      </div>
+      <div id="contenido-rrhh"><p class="section-sub">Cargando...</p></div>`;
+    await renderRrhh();
+  }
+
+  if (id === 'brigadistas'){
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>Brigadistas</h2>
+          <p class="section-sub">Participantes de la brigada — formación, tutorización e inserción</p>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-anadir" style="margin:0" onclick="abrirModalCsvGenerico('brigadistas')">Actualizar desde CSV</button>
+          <button class="btn-anadir" style="margin:0" onclick="abrirModalBrigadista()">+ Añadir brigadista</button>
+        </div>
+      </div>
+      <div id="contenido-brigadistas"><p class="section-sub">Cargando...</p></div>`;
+    await renderBrigadistas();
   }
 }
 
@@ -764,6 +796,289 @@ async function guardarGestionIncidencia(id){
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
   cerrarModal();
   await renderIncidencias(filtroIncidenciaActual);
+}
+
+// =====================================================================
+// IMPORTADOR CSV GENÉRICO (usado por RRHH y Brigadistas)
+// =====================================================================
+const CONFIG_CSV = {
+  rrhh: {
+    titulo: 'Actualizar RRHH desde CSV',
+    tabla: 'rrhh_personal',
+    columnas: ['nombre','perfil','entidad','tipo_contractual','pct_dedicacion','meses_dedicacion','email','telefono','fecha_alta'],
+    ejemplo: 'María Piqueras,Trabajadora social,AFEMPES,PT,50,12,maria@afempes.es,600000000,2026-06-01',
+    refrescar: () => renderRrhh(),
+    mapaFila: (fila) => ({
+      nombre: (fila.nombre || '').trim(),
+      perfil: fila.perfil?.trim() || null,
+      entidad: fila.entidad?.trim() || null,
+      tipo_contractual: fila.tipo_contractual?.trim() || null,
+      pct_dedicacion: fila.pct_dedicacion ? parseFloat(fila.pct_dedicacion) : null,
+      meses_dedicacion: fila.meses_dedicacion ? parseFloat(fila.meses_dedicacion) : null,
+      email: fila.email?.trim() || null,
+      telefono: fila.telefono?.trim() || null,
+      fecha_alta: fila.fecha_alta?.trim() || null,
+    })
+  },
+  brigadistas: {
+    titulo: 'Actualizar Brigadistas desde CSV',
+    tabla: 'brigadistas',
+    columnas: ['nombre','fecha_alta','horas_formacion_tecnica','horas_formacion_transversal','sesiones_tutorizacion_psicosocial','estado_portfolio','estado_insercion','tipo_salida','fecha_insercion'],
+    ejemplo: 'Nombre Apellido,2026-06-01,20,8,2,en_progreso,no_insertado,,',
+    refrescar: () => renderBrigadistas(),
+    mapaFila: (fila) => ({
+      nombre: (fila.nombre || '').trim(),
+      fecha_alta: fila.fecha_alta?.trim() || null,
+      horas_formacion_tecnica: fila.horas_formacion_tecnica ? parseFloat(fila.horas_formacion_tecnica) : 0,
+      horas_formacion_transversal: fila.horas_formacion_transversal ? parseFloat(fila.horas_formacion_transversal) : 0,
+      sesiones_tutorizacion_psicosocial: fila.sesiones_tutorizacion_psicosocial ? parseInt(fila.sesiones_tutorizacion_psicosocial) : 0,
+      estado_portfolio: fila.estado_portfolio?.trim() || 'no_iniciado',
+      estado_insercion: fila.estado_insercion?.trim() || 'no_insertado',
+      tipo_salida: fila.tipo_salida?.trim() || null,
+      fecha_insercion: fila.fecha_insercion?.trim() || null,
+    })
+  }
+};
+
+function abrirModalCsvGenerico(clave){
+  const cfg = CONFIG_CSV[clave];
+  abrirModal(cfg.titulo, `
+    <p class="section-sub" style="margin-bottom:12px;">
+      Columnas esperadas (con encabezado):<br>
+      <code>${cfg.columnas.join(',')}</code><br>
+      Si el nombre ya existe, se actualiza. Si no existe, se crea.
+    </p>
+    <button class="btn-secundario" onclick="descargarPlantillaCsvGenerico('${clave}')">Descargar plantilla CSV</button>
+    <div style="margin:14px 0;"><input type="file" id="csv-generico-input" accept=".csv"></div>
+    <button class="btn-primary btn-inline" onclick="procesarCsvGenerico('${clave}')">Importar</button>
+    <div id="csv-generico-resultado" class="section-sub" style="margin-top:12px; white-space:pre-line;"></div>
+  `);
+}
+
+function descargarPlantillaCsvGenerico(clave){
+  const cfg = CONFIG_CSV[clave];
+  const contenido = cfg.columnas.join(',') + '\n' + cfg.ejemplo + '\n';
+  const blob = new Blob([contenido], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `plantilla_${clave}_turiaviu.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function procesarCsvGenerico(clave){
+  const cfg = CONFIG_CSV[clave];
+  const input = document.getElementById('csv-generico-input');
+  const resultado = document.getElementById('csv-generico-resultado');
+  if (!input.files.length){ resultado.textContent = 'Selecciona un archivo CSV primero.'; return; }
+  resultado.textContent = 'Procesando...';
+
+  Papa.parse(input.files[0], {
+    header: true,
+    skipEmptyLines: true,
+    complete: async (parsed) => {
+      const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+      let creados = 0, actualizados = 0, errores = [];
+
+      for (const [i, filaCruda] of parsed.data.entries()){
+        const fila = cfg.mapaFila(filaCruda);
+        if (!fila.nombre){ errores.push(`Fila ${i+2}: falta el nombre.`); continue; }
+
+        const { data: existente } = await sb.from(cfg.tabla).select('id').eq('proyecto_id', proyecto.id).eq('nombre', fila.nombre).maybeSingle();
+        const { error } = await sb.from(cfg.tabla).upsert({ ...fila, proyecto_id: proyecto.id }, { onConflict: 'proyecto_id,nombre' });
+        if (error){ errores.push(`Fila ${i+2} (${fila.nombre}): ${error.message}`); continue; }
+        existente ? actualizados++ : creados++;
+      }
+
+      let resumen = `Importación completa: ${creados} nuevo(s), ${actualizados} actualizado(s).`;
+      if (errores.length) resumen += `\n\nAvisos:\n` + errores.join('\n');
+      resultado.textContent = resumen;
+      await cfg.refrescar();
+    },
+    error: (err) => { resultado.textContent = 'Error al leer el CSV: ' + err.message; }
+  });
+}
+
+// =====================================================================
+// MÓDULO: RRHH
+// =====================================================================
+let cacheRrhh = {};
+
+async function renderRrhh(){
+  const cont = document.getElementById('contenido-rrhh');
+  const { data: personas, error } = await sb.from('rrhh_personal').select('*').order('created_at');
+  if (error){ cont.innerHTML = `<p class="section-sub">No se ha podido cargar el RRHH: ${error.message}</p>`; return; }
+  cacheRrhh = {};
+  (personas || []).forEach(p => cacheRrhh[p.id] = p);
+
+  cont.innerHTML = (!personas || personas.length === 0) ? '<p class="section-sub">Todavía no hay personal registrado.</p>' : personas.map(p => `
+    <div class="card fila-miembro">
+      <div>
+        <strong>${p.nombre}</strong>${p.tipo_contractual ? ` <span class="badge-rol">${p.tipo_contractual}</span>` : ''}
+        <p class="section-sub" style="margin:2px 0 0">${p.perfil ?? ''}${p.entidad ? ' · ' + p.entidad : ''}</p>
+        <p class="section-sub" style="margin:2px 0 0">${p.pct_dedicacion ? `${p.pct_dedicacion}% dedicación` : ''}${p.meses_dedicacion ? ` · ${p.meses_dedicacion} meses` : ''}</p>
+        <p class="section-sub" style="margin:2px 0 0">${p.email ?? 'Sin email'}${p.telefono ? ' · ' + p.telefono : ''}</p>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+        <button class="btn-secundario" onclick="abrirModalRrhh('${p.id}')">Editar</button>
+        ${p.activo
+          ? `<button class="btn-secundario" onclick="darBajaRrhh('${p.id}')">Dar de baja</button>`
+          : `<span class="badge-proximamente">Inactivo</span>`}
+      </div>
+    </div>
+  `).join('');
+}
+
+function abrirModalRrhh(id){
+  const p = id ? cacheRrhh[id] : null;
+  abrirModal(p ? 'Editar persona' : 'Añadir persona', `
+    <div class="form-grid">
+      <input id="rr-nombre" placeholder="Nombre y apellidos" value="${p?.nombre ?? ''}">
+      <input id="rr-perfil" placeholder="Perfil / cargo" value="${p?.perfil ?? ''}">
+      <input id="rr-entidad" placeholder="Entidad" value="${p?.entidad ?? ''}">
+      <input id="rr-tipo" placeholder="Tipo contractual (PP, PT, TRADE...)" value="${p?.tipo_contractual ?? ''}">
+      <input id="rr-dedicacion" type="number" step="0.1" placeholder="% dedicación" value="${p?.pct_dedicacion ?? ''}">
+      <input id="rr-meses" type="number" step="0.1" placeholder="Meses de dedicación" value="${p?.meses_dedicacion ?? ''}">
+      <input id="rr-email" type="email" placeholder="Correo electrónico" value="${p?.email ?? ''}">
+      <input id="rr-telefono" placeholder="Teléfono" value="${p?.telefono ?? ''}">
+      <input id="rr-fecha-alta" type="date" value="${p?.fecha_alta ?? new Date().toISOString().slice(0,10)}">
+    </div>
+    <button class="btn-primary btn-inline" onclick="guardarRrhh(${id ? `'${id}'` : 'null'})">Guardar</button>
+    <div id="rrhh-msg" class="section-sub"></div>
+  `);
+}
+
+async function guardarRrhh(id){
+  const msg = document.getElementById('rrhh-msg');
+  const nombre = document.getElementById('rr-nombre').value.trim();
+  if (!nombre){ msg.textContent = 'El nombre es obligatorio.'; return; }
+
+  const datos = {
+    nombre,
+    perfil: document.getElementById('rr-perfil').value.trim() || null,
+    entidad: document.getElementById('rr-entidad').value.trim() || null,
+    tipo_contractual: document.getElementById('rr-tipo').value.trim() || null,
+    pct_dedicacion: document.getElementById('rr-dedicacion').value || null,
+    meses_dedicacion: document.getElementById('rr-meses').value || null,
+    email: document.getElementById('rr-email').value.trim() || null,
+    telefono: document.getElementById('rr-telefono').value.trim() || null,
+    fecha_alta: document.getElementById('rr-fecha-alta').value,
+  };
+
+  let error;
+  if (id){
+    ({ error } = await sb.from('rrhh_personal').update(datos).eq('id', id));
+  } else {
+    const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+    ({ error } = await sb.from('rrhh_personal').insert({ ...datos, proyecto_id: proyecto.id }));
+  }
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderRrhh();
+}
+
+async function darBajaRrhh(id){
+  const ok = confirm('¿Marcar a esta persona como inactiva (baja)?');
+  if (!ok) return;
+  await sb.from('rrhh_personal').update({ activo:false, fecha_baja: new Date().toISOString().slice(0,10) }).eq('id', id);
+  await renderRrhh();
+}
+
+// =====================================================================
+// MÓDULO: BRIGADISTAS
+// =====================================================================
+let cacheBrigadistas = {};
+const ETIQUETAS_PORTFOLIO = { no_iniciado:'No iniciado', en_progreso:'En progreso', completado:'Completado' };
+const ETIQUETAS_INSERCION = { no_insertado:'No insertado', en_proceso:'En proceso', insertado:'Insertado' };
+
+async function renderBrigadistas(){
+  const cont = document.getElementById('contenido-brigadistas');
+  const { data: brigadistas, error } = await sb.from('brigadistas').select('*').order('created_at');
+  if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar los brigadistas: ${error.message}</p>`; return; }
+  cacheBrigadistas = {};
+  (brigadistas || []).forEach(b => cacheBrigadistas[b.id] = b);
+
+  cont.innerHTML = (!brigadistas || brigadistas.length === 0) ? '<p class="section-sub">Todavía no hay brigadistas registrados.</p>' : brigadistas.map(b => `
+    <div class="card fila-miembro">
+      <div>
+        <strong>${b.nombre}</strong>
+        <p class="section-sub" style="margin:2px 0 0">Formación: ${b.horas_formacion_tecnica}h técnica · ${b.horas_formacion_transversal}h transversal (meta: 300h / 120h)</p>
+        <p class="section-sub" style="margin:2px 0 0">Tutorización psicosocial: ${b.sesiones_tutorizacion_psicosocial} sesiones</p>
+        <p class="section-sub" style="margin:2px 0 0">Portfolio: ${ETIQUETAS_PORTFOLIO[b.estado_portfolio] || b.estado_portfolio} · Inserción: ${ETIQUETAS_INSERCION[b.estado_insercion] || b.estado_insercion}${b.tipo_salida ? ' (' + b.tipo_salida + ')' : ''}</p>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+        <button class="btn-secundario" onclick="abrirModalBrigadista('${b.id}')">Editar</button>
+        ${b.activo
+          ? `<button class="btn-secundario" onclick="darBajaBrigadista('${b.id}')">Dar de baja</button>`
+          : `<span class="badge-proximamente">Inactivo</span>`}
+      </div>
+    </div>
+  `).join('');
+}
+
+function abrirModalBrigadista(id){
+  const b = id ? cacheBrigadistas[id] : null;
+  abrirModal(b ? 'Editar brigadista' : 'Añadir brigadista', `
+    <div class="form-grid">
+      <input id="br-nombre" placeholder="Nombre y apellidos" value="${b?.nombre ?? ''}">
+      <input id="br-fecha-alta" type="date" value="${b?.fecha_alta ?? new Date().toISOString().slice(0,10)}">
+      <input id="br-horas-tecnica" type="number" step="0.5" placeholder="Horas formación técnica" value="${b?.horas_formacion_tecnica ?? 0}">
+      <input id="br-horas-transversal" type="number" step="0.5" placeholder="Horas formación transversal" value="${b?.horas_formacion_transversal ?? 0}">
+      <input id="br-sesiones" type="number" placeholder="Sesiones tutorización" value="${b?.sesiones_tutorizacion_psicosocial ?? 0}">
+      <select id="br-portfolio">
+        <option value="no_iniciado" ${b?.estado_portfolio==='no_iniciado'?'selected':''}>Portfolio: no iniciado</option>
+        <option value="en_progreso" ${b?.estado_portfolio==='en_progreso'?'selected':''}>Portfolio: en progreso</option>
+        <option value="completado" ${b?.estado_portfolio==='completado'?'selected':''}>Portfolio: completado</option>
+      </select>
+      <select id="br-insercion">
+        <option value="no_insertado" ${b?.estado_insercion==='no_insertado'?'selected':''}>Inserción: no insertado</option>
+        <option value="en_proceso" ${b?.estado_insercion==='en_proceso'?'selected':''}>Inserción: en proceso</option>
+        <option value="insertado" ${b?.estado_insercion==='insertado'?'selected':''}>Inserción: insertado</option>
+      </select>
+      <input id="br-tipo-salida" placeholder="Tipo de salida (si insertado)" value="${b?.tipo_salida ?? ''}">
+      <input id="br-fecha-insercion" type="date" value="${b?.fecha_insercion ?? ''}">
+    </div>
+    <textarea id="br-notas" placeholder="Notas de tutorización psicosocial (dato sensible)" class="textarea-comite">${b?.notas_tutorizacion ?? ''}</textarea>
+    <button class="btn-primary btn-inline" onclick="guardarBrigadista(${id ? `'${id}'` : 'null'})">Guardar</button>
+    <div id="brigadista-msg" class="section-sub"></div>
+  `);
+}
+
+async function guardarBrigadista(id){
+  const msg = document.getElementById('brigadista-msg');
+  const nombre = document.getElementById('br-nombre').value.trim();
+  if (!nombre){ msg.textContent = 'El nombre es obligatorio.'; return; }
+
+  const datos = {
+    nombre,
+    fecha_alta: document.getElementById('br-fecha-alta').value,
+    horas_formacion_tecnica: document.getElementById('br-horas-tecnica').value || 0,
+    horas_formacion_transversal: document.getElementById('br-horas-transversal').value || 0,
+    sesiones_tutorizacion_psicosocial: document.getElementById('br-sesiones').value || 0,
+    estado_portfolio: document.getElementById('br-portfolio').value,
+    estado_insercion: document.getElementById('br-insercion').value,
+    tipo_salida: document.getElementById('br-tipo-salida').value.trim() || null,
+    fecha_insercion: document.getElementById('br-fecha-insercion').value || null,
+    notas_tutorizacion: document.getElementById('br-notas').value.trim() || null,
+  };
+
+  let error;
+  if (id){
+    ({ error } = await sb.from('brigadistas').update(datos).eq('id', id));
+  } else {
+    const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+    ({ error } = await sb.from('brigadistas').insert({ ...datos, proyecto_id: proyecto.id }));
+  }
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderBrigadistas();
+}
+
+async function darBajaBrigadista(id){
+  const ok = confirm('¿Marcar a este brigadista como inactivo (baja)?');
+  if (!ok) return;
+  await sb.from('brigadistas').update({ activo:false, fecha_baja: new Date().toISOString().slice(0,10) }).eq('id', id);
+  await renderBrigadistas();
 }
 
 // =====================================================================
