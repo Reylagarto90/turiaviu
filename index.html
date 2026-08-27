@@ -264,7 +264,7 @@ const MODULOS = [
   { id:'incidencias',   nombre:'Incidencias',              sprint:1, activo:true  },
   { id:'actas',         nombre:'Actas de trabajo',         sprint:1, activo:true  },
   { id:'comunicacion',  nombre:'Comunicación',              sprint:4, activo:true  },
-  { id:'presupuesto',   nombre:'Presupuesto',              sprint:4, activo:false },
+  { id:'presupuesto',   nombre:'Presupuesto',              sprint:4, activo:true  },
   { id:'comite',        nombre:'Comité e informes',        sprint:4, activo:true  },
 ];
 
@@ -479,6 +479,19 @@ async function cargarModulo(id){
       </div>
       <div id="contenido-comunicacion"><p class="section-sub">Cargando...</p></div>`;
     await renderComunicacion();
+  }
+
+  if (id === 'presupuesto'){
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>Presupuesto</h2>
+          <p class="section-sub">Partidas, gastos y semáforo de ejecución</p>
+        </div>
+        <button class="btn-anadir" style="margin:0" onclick="abrirModalGasto()">+ Registrar gasto</button>
+      </div>
+      <div id="contenido-presupuesto"><p class="section-sub">Cargando...</p></div>`;
+    await renderPresupuesto();
   }
 }
 
@@ -865,8 +878,8 @@ const CONFIG_CSV = {
   rrhh: {
     titulo: 'Actualizar RRHH desde CSV',
     tabla: 'rrhh_personal',
-    columnas: ['nombre','perfil','entidad','tipo_contractual','pct_dedicacion','meses_dedicacion','email','telefono','fecha_alta'],
-    ejemplo: 'María Piqueras,Trabajadora social,AFEMPES,PT,50,12,maria@afempes.es,600000000,2026-06-01',
+    columnas: ['nombre','perfil','entidad','tipo_contractual','pct_dedicacion','meses_dedicacion','coste_mensual_bruto','email','telefono','fecha_alta'],
+    ejemplo: 'María Piqueras,Trabajadora social,AFEMPES,PT,50,12,1800,maria@afempes.es,600000000,2026-06-01',
     refrescar: () => renderRrhh(),
     mapaFila: (fila) => ({
       nombre: (fila.nombre || '').trim(),
@@ -875,6 +888,7 @@ const CONFIG_CSV = {
       tipo_contractual: fila.tipo_contractual?.trim() || null,
       pct_dedicacion: fila.pct_dedicacion ? parseFloat(fila.pct_dedicacion) : null,
       meses_dedicacion: fila.meses_dedicacion ? parseFloat(fila.meses_dedicacion) : null,
+      coste_mensual_bruto: fila.coste_mensual_bruto ? parseFloat(fila.coste_mensual_bruto) : null,
       email: fila.email?.trim() || null,
       telefono: fila.telefono?.trim() || null,
       fecha_alta: fila.fecha_alta?.trim() || null,
@@ -1054,6 +1068,7 @@ function abrirModalRrhh(id){
       <input id="rr-tipo" placeholder="Tipo contractual (PP, PT, TRADE...)" value="${p?.tipo_contractual ?? ''}">
       <input id="rr-dedicacion" type="number" step="0.1" placeholder="% dedicación" value="${p?.pct_dedicacion ?? ''}">
       <input id="rr-meses" type="number" step="0.1" placeholder="Meses de dedicación" value="${p?.meses_dedicacion ?? ''}">
+      <input id="rr-coste" type="number" step="0.01" placeholder="Coste mensual bruto (€, jornada completa)" value="${p?.coste_mensual_bruto ?? ''}">
       <input id="rr-email" type="email" placeholder="Correo electrónico" value="${p?.email ?? ''}">
       <input id="rr-telefono" placeholder="Teléfono" value="${p?.telefono ?? ''}">
       <input id="rr-fecha-alta" type="date" value="${p?.fecha_alta ?? new Date().toISOString().slice(0,10)}">
@@ -1075,6 +1090,7 @@ async function guardarRrhh(id){
     tipo_contractual: document.getElementById('rr-tipo').value.trim() || null,
     pct_dedicacion: document.getElementById('rr-dedicacion').value || null,
     meses_dedicacion: document.getElementById('rr-meses').value || null,
+    coste_mensual_bruto: document.getElementById('rr-coste').value || null,
     email: document.getElementById('rr-email').value.trim() || null,
     telefono: document.getElementById('rr-telefono').value.trim() || null,
     fecha_alta: document.getElementById('rr-fecha-alta').value,
@@ -1623,6 +1639,154 @@ async function crearComunicacion(){
 
   cerrarModal();
   await renderComunicacion();
+}
+
+// =====================================================================
+// MÓDULO: PRESUPUESTO
+// =====================================================================
+function semaforoPct(pct){
+  if (pct >= 100) return { color: 'var(--rosa-dark)', texto: 'Rojo' };
+  if (pct >= 70) return { color: '#D9A441', texto: 'Ámbar' };
+  return { color: 'var(--verde-bosque)', texto: 'Verde' };
+}
+
+async function renderPresupuesto(){
+  const cont = document.getElementById('contenido-presupuesto');
+  const { data: partidas, error: errP } = await sb.from('partidas_presupuesto').select('*').order('tipo_gasto');
+  const { data: gastos, error: errG } = await sb.from('gastos').select('id, partida_id, importe');
+  const { data: personal } = await sb.from('rrhh_personal').select('coste_mensual_bruto, meses_dedicacion, pct_dedicacion').eq('activo', true);
+
+  if (errP || errG){ cont.innerHTML = `<p class="section-sub">No se ha podido cargar el presupuesto: ${(errP||errG).message}</p>`; return; }
+
+  const costePersonalCalculado = (personal || []).reduce((sum, p) => {
+    if (!p.coste_mensual_bruto || !p.meses_dedicacion || !p.pct_dedicacion) return sum;
+    return sum + (p.coste_mensual_bruto * p.meses_dedicacion * (p.pct_dedicacion / 100));
+  }, 0);
+
+  const ejecutadoPorPartida = {};
+  (gastos || []).forEach(g => { ejecutadoPorPartida[g.partida_id] = (ejecutadoPorPartida[g.partida_id] || 0) + Number(g.importe); });
+
+  const totalPresupuestado = (partidas || []).reduce((s, p) => s + Number(p.importe_presupuestado), 0);
+  const totalEjecutado = (partidas || []).reduce((s, p) => {
+    const ejecutado = p.es_calculada_de_rrhh ? costePersonalCalculado : (ejecutadoPorPartida[p.id] || 0);
+    return s + ejecutado;
+  }, 0);
+  const pctGlobal = totalPresupuestado ? Math.round((totalEjecutado / totalPresupuestado) * 100) : 0;
+
+  cont.innerHTML = `
+    <div class="card">
+      <p class="section-sub" style="margin:0 0 4px;">Ejecución global</p>
+      <p style="font-size:20px; font-weight:600; margin:0 0 8px; color:var(--verde-bosque-dark);">
+        ${totalEjecutado.toLocaleString('es-ES',{maximumFractionDigits:0})}€ / ${totalPresupuestado.toLocaleString('es-ES',{maximumFractionDigits:0})}€ (${pctGlobal}%)
+      </p>
+      <div class="barra-bg"><div class="barra-fill" style="width:${Math.min(100,pctGlobal)}%; background:${semaforoPct(pctGlobal).color};"></div></div>
+    </div>
+
+    ${(partidas || []).map(p => {
+      const ejecutado = p.es_calculada_de_rrhh ? costePersonalCalculado : (ejecutadoPorPartida[p.id] || 0);
+      const pct = p.importe_presupuestado ? Math.round((ejecutado / p.importe_presupuestado) * 100) : 0;
+      const sem = semaforoPct(pct);
+      return `
+      <div class="card">
+        <div class="fila-miembro">
+          <div>
+            <strong style="font-size:13px;">${p.nombre}</strong>
+            ${p.es_calculada_de_rrhh ? '<span class="section-sub"> (calculado automáticamente desde RRHH)</span>' : ''}
+            <p class="section-sub" style="margin:4px 0 0;">${ejecutado.toLocaleString('es-ES',{maximumFractionDigits:0})}€ / ${Number(p.importe_presupuestado).toLocaleString('es-ES',{maximumFractionDigits:0})}€</p>
+          </div>
+          <span class="select-estado" style="background:${sem.color}; color:#fff;">${sem.texto} · ${pct}%</span>
+        </div>
+        <div class="barra-bg" style="margin-top:8px;"><div class="barra-fill" style="width:${Math.min(100,pct)}%; background:${sem.color};"></div></div>
+      </div>`;
+    }).join('')}
+
+    <h3 class="titulo-card" style="margin-top:24px;">Gastos registrados</h3>
+    <div id="lista-gastos">
+      ${(!gastos || gastos.length === 0) ? '<p class="section-sub">Todavía no hay gastos registrados (aparte del coste de personal, que se calcula solo).</p>' : ''}
+    </div>`;
+
+  await renderListaGastos();
+}
+
+async function renderListaGastos(){
+  const cont = document.getElementById('lista-gastos');
+  if (!cont) return;
+  const { data: gastos, error } = await sb
+    .from('gastos')
+    .select('*, partidas_presupuesto(nombre), actividades(codigo), acciones(codigo)')
+    .order('fecha', { ascending:false });
+  if (error){ cont.innerHTML = `<p class="section-sub">Error: ${error.message}</p>`; return; }
+  if (!gastos || gastos.length === 0) return;
+
+  cont.innerHTML = gastos.map(g => `
+    <div class="card fila-miembro">
+      <div>
+        <strong style="font-size:13px;">${g.concepto}</strong>
+        <p class="section-sub" style="margin:2px 0 0;">
+          ${g.fecha} · ${g.partidas_presupuesto?.nombre ?? '—'}
+          ${g.actividades ? ` · ${g.actividades.codigo}` : ''}${g.acciones ? ` (${g.acciones.codigo})` : ''}
+          ${g.factura_referencia ? ` · Factura: ${g.factura_referencia}` : ''}
+        </p>
+      </div>
+      <strong>${Number(g.importe).toLocaleString('es-ES',{minimumFractionDigits:2})}€</strong>
+    </div>
+  `).join('');
+}
+
+async function abrirModalGasto(){
+  const { data: partidas } = await sb.from('partidas_presupuesto').select('id, nombre').eq('es_calculada_de_rrhh', false).order('nombre');
+  const { data: actividades } = await sb.from('actividades').select('id, codigo, nombre').order('codigo');
+
+  abrirModal('Registrar gasto', `
+    <div class="form-grid">
+      <select id="gs-partida">
+        ${(partidas || []).map(p => `<option value="${p.id}">${p.nombre}</option>`).join('')}
+      </select>
+      <input id="gs-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <input id="gs-importe" type="number" step="0.01" placeholder="Importe (€)">
+      <input id="gs-factura" placeholder="Nº de factura (opcional)">
+      <select id="gs-actividad" onchange="cargarAccionesGasto()">
+        <option value="">Sin actividad relacionada</option>
+        ${(actividades || []).map(a => `<option value="${a.id}">${a.codigo} · ${a.nombre.slice(0,35)}</option>`).join('')}
+      </select>
+      <select id="gs-accion"><option value="">Sin acción relacionada</option></select>
+    </div>
+    <input id="gs-concepto" placeholder="Concepto del gasto" style="margin-bottom:10px;">
+    <textarea id="gs-notas" placeholder="Notas (opcional)" class="textarea-comite"></textarea>
+    <button class="btn-primary btn-inline" onclick="crearGasto()">Guardar</button>
+    <div id="gasto-msg" class="section-sub"></div>
+  `);
+}
+
+async function cargarAccionesGasto(){
+  const actividadId = document.getElementById('gs-actividad').value;
+  const select = document.getElementById('gs-accion');
+  if (!actividadId){ select.innerHTML = '<option value="">Sin acción relacionada</option>'; return; }
+  const { data: acciones } = await sb.from('acciones').select('id, codigo, descripcion').eq('actividad_id', actividadId).order('codigo');
+  select.innerHTML = '<option value="">Sin acción relacionada</option>' + (acciones || []).map(a => `<option value="${a.id}">${a.codigo} · ${a.descripcion.slice(0,40)}</option>`).join('');
+}
+
+async function crearGasto(){
+  const msg = document.getElementById('gasto-msg');
+  const concepto = document.getElementById('gs-concepto').value.trim();
+  const importe = document.getElementById('gs-importe').value;
+  if (!concepto || !importe){ msg.textContent = 'Concepto e importe son obligatorios.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+
+  const { error } = await sb.from('gastos').insert({
+    proyecto_id: proyecto.id,
+    partida_id: document.getElementById('gs-partida').value,
+    fecha: document.getElementById('gs-fecha').value,
+    concepto,
+    importe,
+    factura_referencia: document.getElementById('gs-factura').value.trim() || null,
+    actividad_id: document.getElementById('gs-actividad').value || null,
+    accion_id: document.getElementById('gs-accion').value || null,
+    notas: document.getElementById('gs-notas').value.trim() || null,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderPresupuesto();
 }
 
 // =====================================================================
