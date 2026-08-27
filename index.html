@@ -634,9 +634,11 @@ async function renderMiembrosComite(cont){
           <div>
             <strong>${m.nombre}</strong> <span class="badge-rol">${m.rol}</span>
             <p class="section-sub" style="margin:2px 0 0">${m.perfil ?? ''}${m.entidad ? ' · ' + m.entidad : ''}</p>
+            <p class="section-sub" style="margin:2px 0 0">${m.email ?? 'Sin email'}${m.telefono ? ' · ' + m.telefono : ''}</p>
             <p class="section-sub" style="margin:2px 0 0">Alta: ${m.fecha_alta}${m.fecha_baja ? ' · Baja: ' + m.fecha_baja : ''}</p>
           </div>
-          <div>
+          <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+            <button class="btn-secundario" onclick="abrirModalEditarContacto('${m.id}','${(m.email ?? '').replace(/'/g,"\\'")}','${(m.telefono ?? '').replace(/'/g,"\\'")}')">Editar contacto</button>
             ${m.activo
               ? `<button class="btn-secundario" onclick="darBajaMiembro('${m.id}')">Dar de baja</button>`
               : `<span class="badge-proximamente">Inactivo</span>`}
@@ -644,6 +646,28 @@ async function renderMiembrosComite(cont){
         </div>
       `).join('')}
     </div>`;
+}
+
+function abrirModalEditarContacto(id, email, telefono){
+  abrirModal('Editar contacto', `
+    <div class="form-grid">
+      <input id="ec-email" type="email" placeholder="Correo electrónico" value="${email}">
+      <input id="ec-telefono" placeholder="Teléfono" value="${telefono}">
+    </div>
+    <button class="btn-primary btn-inline" onclick="guardarContacto('${id}')">Guardar</button>
+    <div id="contacto-msg" class="section-sub"></div>
+  `);
+}
+
+async function guardarContacto(id){
+  const msg = document.getElementById('contacto-msg');
+  const { error } = await sb.from('comite_miembros').update({
+    email: document.getElementById('ec-email').value.trim() || null,
+    telefono: document.getElementById('ec-telefono').value.trim() || null,
+  }).eq('id', id);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderMiembrosComite(document.getElementById('contenido-comite'));
 }
 
 function abrirModalMiembro(){
@@ -657,6 +681,8 @@ function abrirModalMiembro(){
         <option value="presidencia">Presidencia</option>
         <option value="secretaria">Secretaría</option>
       </select>
+      <input id="nm-email" type="email" placeholder="Correo electrónico">
+      <input id="nm-telefono" placeholder="Teléfono">
       <input id="nm-fecha-alta" type="date" value="${new Date().toISOString().slice(0,10)}">
     </div>
     <button class="btn-primary btn-inline" onclick="crearMiembroComite()">Guardar</button>
@@ -675,6 +701,8 @@ async function crearMiembroComite(){
     entidad: document.getElementById('nm-entidad').value.trim() || null,
     perfil: document.getElementById('nm-perfil').value.trim() || null,
     rol: document.getElementById('nm-rol').value,
+    email: document.getElementById('nm-email').value.trim() || null,
+    telefono: document.getElementById('nm-telefono').value.trim() || null,
     fecha_alta: document.getElementById('nm-fecha-alta').value,
   });
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
@@ -689,7 +717,13 @@ async function darBajaMiembro(id){
   await renderMiembrosComite(document.getElementById('contenido-comite'));
 }
 
-// --------- ACTAS ---------
+// --------- ACTAS (con convocatoria integrada) ---------
+function badgeConvocatoria(estado){
+  const etiquetas = { convocada:'Convocada', celebrada:'Celebrada', cancelada:'Cancelada' };
+  const clase = estado === 'celebrada' ? 'cerrado' : estado === 'cancelada' ? 'pendiente' : 'en_curso';
+  return `<span class="select-estado estado-${clase}">${etiquetas[estado] || estado}</span>`;
+}
+
 async function renderActasComite(cont){
   const { data: actas, error } = await sb
     .from('actas_comite')
@@ -699,15 +733,24 @@ async function renderActasComite(cont){
   if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar las actas: ${error.message}</p>`; return; }
 
   cont.innerHTML = `
-    <button class="btn-anadir" onclick="abrirModalActa()">+ Nueva acta</button>
+    <button class="btn-anadir" onclick="abrirModalActa()">+ Nueva convocatoria / acta</button>
     <div>
-      ${(!actas || actas.length === 0) ? '<p class="section-sub">Todavía no hay actas registradas.</p>' : actas.map(a => `
+      ${(!actas || actas.length === 0) ? '<p class="section-sub">Todavía no hay convocatorias ni actas registradas.</p>' : actas.map(a => `
         <div class="card">
-          <span class="oe-codigo">${a.tipo.replace('_',' ')}</span>
-          <p class="section-sub" style="margin:6px 0">${a.fecha}${a.documento_url ? ` · <a href="${a.documento_url}" target="_blank">documento</a>` : ''}</p>
+          <div class="fila-miembro">
+            <div>
+              <span class="oe-codigo">${a.tipo.replace('_',' ')}</span> ${badgeConvocatoria(a.estado_convocatoria)}
+              <p class="section-sub" style="margin:6px 0">
+                Reunión: ${a.fecha}${a.hora ? ' · ' + a.hora.slice(0,5) : ''}${a.lugar ? ' · ' + a.lugar : ''}
+              </p>
+              ${a.fecha_envio_convocatoria ? `<p class="section-sub" style="margin:0 0 6px;">Convocatoria enviada: ${a.fecha_envio_convocatoria}</p>` : ''}
+            </div>
+            ${a.estado_convocatoria === 'convocada' ? `<button class="btn-secundario" onclick="abrirModalCelebrarActa('${a.id}')">Marcar como celebrada</button>` : ''}
+          </div>
           ${a.orden_dia ? `<p style="font-size:13px;"><strong>Orden del día:</strong> ${a.orden_dia}</p>` : ''}
           ${a.acuerdos ? `<p style="font-size:13px;"><strong>Acuerdos:</strong> ${a.acuerdos}</p>` : ''}
-          <p class="section-sub">Asistentes: ${(a.acta_comite_asistentes || []).map(x => x.comite_miembros?.nombre).filter(Boolean).join(', ') || '—'}</p>
+          ${a.documento_url ? `<p class="section-sub"><a href="${a.documento_url}" target="_blank">Ver documento</a></p>` : ''}
+          <p class="section-sub">Asistentes/convocados: ${(a.acta_comite_asistentes || []).map(x => x.comite_miembros?.nombre).filter(Boolean).join(', ') || '—'}</p>
         </div>
       `).join('')}
     </div>`;
@@ -715,25 +758,28 @@ async function renderActasComite(cont){
 
 async function abrirModalActa(){
   const { data: miembros } = await sb.from('comite_miembros').select('id, nombre').eq('activo', true);
-  abrirModal('Nueva acta del comité', `
+  abrirModal('Nueva convocatoria / acta del comité', `
     <div class="form-grid">
       <input id="na-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <input id="na-hora" type="time">
+      <input id="na-lugar" placeholder="Lugar / modalidad (ej. telemática)">
       <select id="na-tipo">
         <option value="constitucion">Constitución</option>
         <option value="seguimiento_semestral" selected>Seguimiento semestral</option>
         <option value="extraordinaria">Extraordinaria</option>
       </select>
-      <input id="na-documento" placeholder="Enlace al documento firmado (opcional)">
+      <input id="na-fecha-envio" type="date" placeholder="Fecha de envío de la convocatoria">
+      <input id="na-documento" placeholder="Enlace a documento (opcional)">
     </div>
     <textarea id="na-orden" placeholder="Orden del día" class="textarea-comite"></textarea>
-    <textarea id="na-acuerdos" placeholder="Acuerdos" class="textarea-comite"></textarea>
-    <p class="section-sub" style="margin:10px 0 4px">Asistentes:</p>
+    <p class="section-sub" style="margin:10px 0 4px">Convocados / asistentes:</p>
     <div class="checks-asistentes">
       ${(miembros || []).map(m => `
         <label class="check-asistente"><input type="checkbox" value="${m.id}" class="chk-asistente-nueva"> ${m.nombre}</label>
       `).join('') || '<span class="section-sub">Añade miembros primero en la pestaña Miembros.</span>'}
     </div>
-    <button class="btn-primary btn-inline" onclick="crearActaComite()">Guardar acta</button>
+    <p class="section-sub" style="margin:10px 0 4px;">Se crea en estado "Convocada". Cuando se celebre la reunión, usa "Marcar como celebrada" para añadir los acuerdos.</p>
+    <button class="btn-primary btn-inline" onclick="crearActaComite()">Guardar convocatoria</button>
     <div id="acta-msg" class="section-sub"></div>
   `);
 }
@@ -746,10 +792,13 @@ async function crearActaComite(){
   const { data: acta, error } = await sb.from('actas_comite').insert({
     proyecto_id: proyecto.id,
     fecha: document.getElementById('na-fecha').value,
+    hora: document.getElementById('na-hora').value || null,
+    lugar: document.getElementById('na-lugar').value.trim() || null,
     tipo: document.getElementById('na-tipo').value,
     orden_dia: document.getElementById('na-orden').value.trim() || null,
-    acuerdos: document.getElementById('na-acuerdos').value.trim() || null,
     documento_url: document.getElementById('na-documento').value.trim() || null,
+    fecha_envio_convocatoria: document.getElementById('na-fecha-envio').value || null,
+    estado_convocatoria: 'convocada',
   }).select().single();
 
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
@@ -759,6 +808,27 @@ async function crearActaComite(){
     await sb.from('acta_comite_asistentes').insert(filas);
   }
 
+  cerrarModal();
+  await renderActasComite(document.getElementById('contenido-comite'));
+}
+
+function abrirModalCelebrarActa(actaId){
+  abrirModal('Marcar reunión como celebrada', `
+    <textarea id="ca-acuerdos" placeholder="Acuerdos tomados en la reunión" class="textarea-comite"></textarea>
+    <input id="ca-documento" placeholder="Enlace al documento firmado (opcional)">
+    <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarCelebrarActa('${actaId}')">Guardar</button>
+    <div id="celebrar-msg" class="section-sub"></div>
+  `);
+}
+
+async function guardarCelebrarActa(actaId){
+  const msg = document.getElementById('celebrar-msg');
+  const { error } = await sb.from('actas_comite').update({
+    estado_convocatoria: 'celebrada',
+    acuerdos: document.getElementById('ca-acuerdos').value.trim() || null,
+    documento_url: document.getElementById('ca-documento').value.trim() || null,
+  }).eq('id', actaId);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
   cerrarModal();
   await renderActasComite(document.getElementById('contenido-comite'));
 }
