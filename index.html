@@ -184,6 +184,17 @@
   .registro-seguimiento:last-child{ border-bottom:none; }
   .btn-mini{ padding:5px 10px; font-size:12px; }
   .form-convertir-incidencia{ background:var(--fondo); border-radius:8px; padding:10px; margin-top:8px; }
+
+  /* ---------- PANEL DE INICIO ---------- */
+  .kpi-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin-bottom:24px; }
+  .kpi-card{ background:var(--blanco); border:1px solid var(--borde); border-radius:12px; padding:16px; text-align:center; }
+  .kpi-card .kpi-valor{ font-size:24px; font-weight:700; color:var(--verde-bosque-dark); display:block; }
+  .kpi-card .kpi-label{ font-size:11.5px; color:var(--texto-suave); margin-top:4px; display:block; }
+  .panel-columnas{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:800px){ .panel-columnas{ grid-template-columns:1fr; } }
+  .alerta-item{ display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px dashed var(--borde); font-size:13px; }
+  .alerta-item:last-child{ border-bottom:none; }
+  .alerta-badge{ font-size:11px; padding:2px 8px; border-radius:6px; color:#fff; }
 </style>
 </head>
 <body>
@@ -255,6 +266,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // Sprint 1 activo: nucleo. El resto entran en sprints siguientes.
 // =====================================================================
 const MODULOS = [
+  { id:'inicio',        nombre:'Panel de inicio',          sprint:1, activo:true  },
   { id:'nucleo',        nombre:'Objetivos e indicadores', sprint:1, activo:true  },
   { id:'cronograma',    nombre:'Cronograma',               sprint:1, activo:true  },
   { id:'rrhh',          nombre:'RRHH',                     sprint:2, activo:true  },
@@ -272,7 +284,7 @@ const MODULOS_BRIGADISTA = [
   { id:'mi_diario', nombre:'Mi diario', activo:true },
 ];
 
-let moduloActual = 'nucleo';
+let moduloActual = 'inicio';
 
 async function iniciarSesion(){
   const email = document.getElementById('email').value;
@@ -339,6 +351,12 @@ async function cargarModulo(id){
       <p class="section-sub">Solo tú, los profesionales asignados y el director pueden verlo</p>
       <div id="contenido-mi-diario"><p class="section-sub">Cargando...</p></div>`;
     await renderMiDiario();
+    return;
+  }
+
+  if (id === 'inicio'){
+    main.innerHTML = `<h2>Panel de inicio</h2><p class="section-sub">Vista general del proyecto</p><div id="contenido-inicio"><p class="section-sub">Cargando...</p></div>`;
+    await renderInicio();
     return;
   }
 
@@ -579,6 +597,112 @@ function procesarCsvIndicadores(){
     },
     error: (err) => { resultado.textContent = 'Error al leer el CSV: ' + err.message; }
   });
+}
+
+// =====================================================================
+// PANEL DE INICIO
+// =====================================================================
+async function renderInicio(){
+  const cont = document.getElementById('contenido-inicio');
+  const hoy = new Date().toISOString().slice(0,10);
+  const en30dias = new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10);
+
+  const [
+    { data: indicadores },
+    { data: partidas },
+    { data: gastos },
+    { data: personalCoste },
+    { data: censos },
+    { data: lotes },
+    { data: brigadistasActivos },
+    { data: incidenciasAbiertas },
+    { data: compromisosTrabajo },
+    { data: compromisosComite },
+    { data: actividadesProximas },
+    { data: convocatoriasProximas },
+  ] = await Promise.all([
+    sb.from('indicadores').select('valor_actual, meta'),
+    sb.from('partidas_presupuesto').select('*'),
+    sb.from('gastos').select('partida_id, importe'),
+    sb.from('rrhh_personal').select('coste_mensual_bruto, meses_dedicacion, pct_dedicacion').eq('activo', true),
+    sb.from('censos_supervivencia').select('hectareas_intervenidas'),
+    sb.from('lotes_vivero').select('cantidad_sembrada'),
+    sb.from('brigadistas').select('id', { count:'exact', head:true }).eq('activo', true),
+    sb.from('incidencias').select('id', { count:'exact', head:true }).neq('estado', 'cerrada'),
+    sb.from('compromisos').select('descripcion, fecha_limite, estado').neq('estado','cerrado').lt('fecha_limite', hoy),
+    sb.from('compromisos_comite').select('descripcion, fecha_limite, estado').neq('estado','cerrado').lt('fecha_limite', hoy),
+    sb.from('actividades').select('codigo, nombre, fecha_fin_prevista').neq('estado','completada').gte('fecha_fin_prevista', hoy).lte('fecha_fin_prevista', en30dias).order('fecha_fin_prevista'),
+    sb.from('actas_comite').select('fecha, tipo').eq('estado_convocatoria','convocada').order('fecha'),
+  ]);
+
+  // --- Cifras clave ---
+  const conMeta = (indicadores || []).filter(i => i.meta);
+  const pctObjetivosGlobal = conMeta.length
+    ? Math.round(conMeta.reduce((s,i) => s + Math.min(100, (i.valor_actual/i.meta)*100), 0) / conMeta.length)
+    : 0;
+
+  const costePersonal = (personalCoste || []).reduce((s,p) => {
+    if (!p.coste_mensual_bruto || !p.meses_dedicacion || !p.pct_dedicacion) return s;
+    return s + (p.coste_mensual_bruto * p.meses_dedicacion * (p.pct_dedicacion/100));
+  }, 0);
+  const ejecutadoPorPartida = {};
+  (gastos || []).forEach(g => { ejecutadoPorPartida[g.partida_id] = (ejecutadoPorPartida[g.partida_id]||0) + Number(g.importe); });
+  const totalPresupuestado = (partidas || []).reduce((s,p) => s + Number(p.importe_presupuestado), 0);
+  const totalEjecutado = (partidas || []).reduce((s,p) => s + (p.es_calculada_de_rrhh ? costePersonal : (ejecutadoPorPartida[p.id]||0)), 0);
+  const pctPresupuesto = totalPresupuestado ? Math.round((totalEjecutado/totalPresupuestado)*100) : 0;
+
+  const hectareas = (censos || []).reduce((s,c) => s + (Number(c.hectareas_intervenidas)||0), 0);
+  const plantas = (lotes || []).reduce((s,l) => s + (Number(l.cantidad_sembrada)||0), 0);
+  const { data: ind41 } = await sb.from('indicadores').select('valor_actual').eq('codigo','Indicador 4.1').maybeSingle();
+  const personasAlcanzadas = ind41?.valor_actual ?? 0;
+
+  const kpis = [
+    { valor: `${pctObjetivosGlobal}%`, label: 'Objetivos conseguidos' },
+    { valor: `${pctPresupuesto}%`, label: 'Presupuesto ejecutado' },
+    { valor: hectareas.toLocaleString('es-ES'), label: 'Hectáreas intervenidas' },
+    { valor: plantas.toLocaleString('es-ES'), label: 'Plantas producidas' },
+    { valor: personasAlcanzadas.toLocaleString('es-ES'), label: 'Personas alcanzadas' },
+    { valor: brigadistasActivos?.length ?? '—', label: 'Brigadistas activos' },
+  ];
+
+  // --- Alertas ---
+  const partidasRojas = (partidas || []).filter(p => {
+    const ejecutado = p.es_calculada_de_rrhh ? costePersonal : (ejecutadoPorPartida[p.id]||0);
+    const pct = p.importe_presupuestado ? (ejecutado/p.importe_presupuestado)*100 : 0;
+    return pct >= 100;
+  });
+
+  const alertas = [];
+  const nIncidencias = incidenciasAbiertas?.length ?? 0;
+  if (nIncidencias > 0) alertas.push({ texto: `${nIncidencias} incidencia(s) sin cerrar`, color:'var(--rosa-dark)' });
+  partidasRojas.forEach(p => alertas.push({ texto: `Partida "${p.nombre}" al 100% o más`, color:'var(--rosa-dark)' }));
+  (compromisosTrabajo || []).forEach(c => alertas.push({ texto: `Compromiso vencido (equipo): ${c.descripcion.slice(0,50)}`, color:'#D9A441' }));
+  (compromisosComite || []).forEach(c => alertas.push({ texto: `Compromiso vencido (comité): ${c.descripcion.slice(0,50)}`, color:'#D9A441' }));
+
+  // --- Próximos hitos ---
+  const hitos = [
+    ...(actividadesProximas || []).map(a => ({ texto: `${a.codigo} · ${a.nombre.slice(0,40)}`, fecha: a.fecha_fin_prevista, tipo:'Actividad' })),
+    ...(convocatoriasProximas || []).map(c => ({ texto: `Reunión del comité (${c.tipo.replace('_',' ')})`, fecha: c.fecha, tipo:'Comité' })),
+  ].sort((a,b) => a.fecha.localeCompare(b.fecha));
+
+  cont.innerHTML = `
+    <div class="kpi-grid">
+      ${kpis.map(k => `<div class="kpi-card"><span class="kpi-valor">${k.valor}</span><span class="kpi-label">${k.label}</span></div>`).join('')}
+    </div>
+    <div class="panel-columnas">
+      <div class="card">
+        <h3 class="titulo-card">Alertas</h3>
+        ${alertas.length === 0 ? '<p class="section-sub">Sin alertas por ahora.</p>' : alertas.map(a => `
+          <div class="alerta-item"><span>${a.texto}</span><span class="alerta-badge" style="background:${a.color};">●</span></div>
+        `).join('')}
+      </div>
+      <div class="card">
+        <h3 class="titulo-card">Próximos hitos (30 días)</h3>
+        ${hitos.length === 0 ? '<p class="section-sub">No hay hitos próximos en los siguientes 30 días.</p>' : hitos.map(h => `
+          <div class="alerta-item"><span>${h.texto}</span><span class="section-sub">${h.fecha} · ${h.tipo}</span></div>
+        `).join('')}
+      </div>
+    </div>`;
 }
 
 async function cargarObjetivosEIndicadores(){
