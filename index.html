@@ -261,7 +261,7 @@ const MODULOS = [
   { id:'vivero_campo',  nombre:'Vivero y campo',           sprint:3, activo:false },
   { id:'bitacora',      nombre:'Cuaderno de bitácora',     sprint:3, activo:false },
   { id:'incidencias',   nombre:'Incidencias',              sprint:1, activo:false },
-  { id:'actas',         nombre:'Actas de trabajo',         sprint:1, activo:false },
+  { id:'actas',         nombre:'Actas de trabajo',         sprint:1, activo:true  },
   { id:'comunicacion',  nombre:'Comunicación',              sprint:4, activo:false },
   { id:'presupuesto',   nombre:'Presupuesto',              sprint:4, activo:false },
   { id:'comite',        nombre:'Comité e informes',        sprint:4, activo:true  },
@@ -359,6 +359,14 @@ async function cargarModulo(id){
       </div>
       <div id="contenido-cronograma"><p class="section-sub">Cargando...</p></div>`;
     await cambiarVistaCronograma('tabla');
+  }
+
+  if (id === 'actas'){
+    main.innerHTML = `
+      <h2>Actas de trabajo</h2>
+      <p class="section-sub">Reuniones de coordinación interna del equipo AFEMPES</p>
+      <div id="contenido-actas-trabajo"><p class="section-sub">Cargando...</p></div>`;
+    await renderActasTrabajo();
   }
 }
 
@@ -596,6 +604,122 @@ async function confirmarConvertirIncidencia(registroId, actividadId){
     contenedor.innerHTML = `<p class="section-sub" style="color:var(--verde-bosque)">Incidencia creada correctamente.</p>`;
   }
 }
+
+// =====================================================================
+// MÓDULO: ACTAS DE TRABAJO DEL EQUIPO
+// =====================================================================
+async function renderActasTrabajo(){
+  const cont = document.getElementById('contenido-actas-trabajo');
+  const { data: actas, error } = await sb
+    .from('actas_trabajo')
+    .select('*, actividades(codigo, nombre), compromisos(id, descripcion, responsable, fecha_limite, estado)')
+    .order('fecha', { ascending:false });
+
+  if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar las actas: ${error.message}</p>`; return; }
+
+  cont.innerHTML = `
+    <button class="btn-anadir" onclick="abrirModalActaTrabajo()">+ Nueva acta de trabajo</button>
+    <div>
+      ${(!actas || actas.length === 0) ? '<p class="section-sub">Todavía no hay actas de trabajo registradas.</p>' : actas.map(a => `
+        <div class="card">
+          <p class="section-sub" style="margin:0 0 6px;">
+            ${a.fecha}${a.actividades ? ` · ${a.actividades.codigo} ${a.actividades.nombre}` : ''}
+          </p>
+          <p class="section-sub" style="margin:0 0 8px;">Asistentes: ${(a.asistentes || []).join(', ') || '—'}</p>
+          ${a.orden_dia ? `<p style="font-size:13px;"><strong>Orden del día:</strong> ${a.orden_dia}</p>` : ''}
+          ${a.acuerdos ? `<p style="font-size:13px;"><strong>Acuerdos:</strong> ${a.acuerdos}</p>` : ''}
+          <div class="lista-acciones-cronograma">
+            <p class="section-sub" style="margin:0 0 6px; font-weight:600;">Compromisos</p>
+            ${(a.compromisos || []).length === 0 ? '<p class="section-sub">Sin compromisos.</p>' : a.compromisos.map(c => `
+              <div class="fila-accion-cronograma">
+                <div>
+                  <span style="font-size:12.5px;">${c.descripcion}</span>
+                  <p class="section-sub" style="margin:2px 0 0;">Responsable: ${c.responsable} · Límite: ${c.fecha_limite ?? '—'}</p>
+                </div>
+                <select onchange="cambiarEstadoCompromisoTrabajo('${c.id}', this.value)" class="select-estado estado-${c.estado}">
+                  <option value="pendiente" ${c.estado==='pendiente'?'selected':''}>Pendiente</option>
+                  <option value="en_curso" ${c.estado==='en_curso'?'selected':''}>En curso</option>
+                  <option value="cerrado" ${c.estado==='cerrado'?'selected':''}>Cerrado</option>
+                </select>
+              </div>
+            `).join('')}
+            <button class="btn-secundario btn-mini" style="margin-top:8px;" onclick="abrirModalCompromisoTrabajo('${a.id}')">+ Añadir compromiso</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+async function abrirModalActaTrabajo(){
+  const { data: actividades } = await sb.from('actividades').select('id, codigo, nombre').order('codigo');
+  abrirModal('Nueva acta de trabajo del equipo', `
+    <div class="form-grid">
+      <input id="at-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <select id="at-actividad">
+        <option value="">Sin actividad relacionada</option>
+        ${(actividades || []).map(a => `<option value="${a.id}">${a.codigo} · ${a.nombre.slice(0,40)}</option>`).join('')}
+      </select>
+    </div>
+    <input id="at-asistentes" placeholder="Asistentes, separados por comas" style="margin-bottom:10px;">
+    <textarea id="at-orden" placeholder="Orden del día" class="textarea-comite"></textarea>
+    <textarea id="at-acuerdos" placeholder="Acuerdos" class="textarea-comite"></textarea>
+    <button class="btn-primary btn-inline" onclick="crearActaTrabajo()">Guardar acta</button>
+    <div id="acta-trabajo-msg" class="section-sub"></div>
+  `);
+}
+
+async function crearActaTrabajo(){
+  const msg = document.getElementById('acta-trabajo-msg');
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+  const asistentes = document.getElementById('at-asistentes').value.split(',').map(s => s.trim()).filter(Boolean);
+
+  const { error } = await sb.from('actas_trabajo').insert({
+    proyecto_id: proyecto.id,
+    fecha: document.getElementById('at-fecha').value,
+    actividad_id: document.getElementById('at-actividad').value || null,
+    asistentes,
+    orden_dia: document.getElementById('at-orden').value.trim() || null,
+    acuerdos: document.getElementById('at-acuerdos').value.trim() || null,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderActasTrabajo();
+}
+
+function abrirModalCompromisoTrabajo(actaId){
+  abrirModal('Nuevo compromiso', `
+    <textarea id="ct-descripcion" placeholder="Descripción del compromiso" class="textarea-comite"></textarea>
+    <div class="form-grid">
+      <input id="ct-responsable" placeholder="Responsable">
+      <input id="ct-fecha-limite" type="date">
+    </div>
+    <button class="btn-primary btn-inline" onclick="crearCompromisoTrabajo('${actaId}')">Guardar</button>
+    <div id="compromiso-trabajo-msg" class="section-sub"></div>
+  `);
+}
+
+async function crearCompromisoTrabajo(actaId){
+  const msg = document.getElementById('compromiso-trabajo-msg');
+  const descripcion = document.getElementById('ct-descripcion').value.trim();
+  const responsable = document.getElementById('ct-responsable').value.trim();
+  if (!descripcion || !responsable){ msg.textContent = 'Descripción y responsable son obligatorios.'; return; }
+
+  const { error } = await sb.from('compromisos').insert({
+    acta_id: actaId,
+    descripcion,
+    responsable,
+    fecha_limite: document.getElementById('ct-fecha-limite').value || null,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderActasTrabajo();
+}
+
+async function cambiarEstadoCompromisoTrabajo(id, estado){
+  await sb.from('compromisos').update({ estado }).eq('id', id);
+  await renderActasTrabajo();
+}
+
 function abrirModal(titulo, cuerpoHtml){
   document.getElementById('modal-titulo').textContent = titulo;
   document.getElementById('modal-cuerpo').innerHTML = cuerpoHtml;
