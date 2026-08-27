@@ -6,6 +6,7 @@
 <title>TuriaViu · AFEMPES</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <style>
   :root{
     --verde-bosque:#1B4D3E;
@@ -608,6 +609,47 @@ async function confirmarConvertirIncidencia(registroId, actividadId){
 // =====================================================================
 // MÓDULO: ACTAS DE TRABAJO DEL EQUIPO
 // =====================================================================
+let cacheActasTrabajo = {};
+
+function agregarBloquePdf(doc, titulo, contenido, y){
+  if (!contenido) return y;
+  if (y > 270){ doc.addPage(); y = 20; }
+  doc.setFont(undefined, 'bold'); doc.text(titulo + ':', 14, y); doc.setFont(undefined, 'normal'); y += 6;
+  const wrapped = doc.splitTextToSize(contenido, 180);
+  wrapped.forEach(linea => { if (y > 280){ doc.addPage(); y = 20; } doc.text(linea, 14, y); y += 6; });
+  return y + 4;
+}
+
+function descargarPdfActaTrabajo(id){
+  const a = cacheActasTrabajo[id];
+  if (!a) return;
+  const doc = new jspdf.jsPDF();
+  let y = 20;
+  doc.setFontSize(14); doc.text('TuriaViu · Acta de trabajo del equipo', 14, y); y += 10;
+  doc.setFontSize(10);
+  doc.text(`Fecha: ${a.fecha}`, 14, y); y += 6;
+  if (a.actividades){ doc.text(`Actividad relacionada: ${a.actividades.codigo} · ${a.actividades.nombre}`, 14, y); y += 6; }
+  const asistentesTxt = doc.splitTextToSize(`Asistentes: ${(a.asistentes || []).join(', ') || '—'}`, 180);
+  asistentesTxt.forEach(l => { doc.text(l, 14, y); y += 6; });
+  y += 2;
+  y = agregarBloquePdf(doc, 'Orden del día', a.orden_dia, y);
+  y = agregarBloquePdf(doc, 'Acuerdos', a.acuerdos, y);
+
+  if (y > 260){ doc.addPage(); y = 20; }
+  doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text('Compromisos', 14, y); doc.setFont(undefined, 'normal'); y += 7;
+  doc.setFontSize(10);
+  if (!a.compromisos || a.compromisos.length === 0){
+    doc.text('Sin compromisos.', 14, y); y += 6;
+  } else {
+    a.compromisos.forEach(c => {
+      const linea = `• ${c.descripcion} — Responsable: ${c.responsable} — Límite: ${c.fecha_limite ?? '—'} — Estado: ${c.estado}`;
+      const wrapped = doc.splitTextToSize(linea, 180);
+      wrapped.forEach(l => { if (y > 280){ doc.addPage(); y = 20; } doc.text(l, 14, y); y += 6; });
+    });
+  }
+  doc.save(`acta_trabajo_${a.fecha}.pdf`);
+}
+
 async function renderActasTrabajo(){
   const cont = document.getElementById('contenido-actas-trabajo');
   const { data: actas, error } = await sb
@@ -617,14 +659,20 @@ async function renderActasTrabajo(){
 
   if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar las actas: ${error.message}</p>`; return; }
 
+  cacheActasTrabajo = {};
+  (actas || []).forEach(a => cacheActasTrabajo[a.id] = a);
+
   cont.innerHTML = `
     <button class="btn-anadir" onclick="abrirModalActaTrabajo()">+ Nueva acta de trabajo</button>
     <div>
       ${(!actas || actas.length === 0) ? '<p class="section-sub">Todavía no hay actas de trabajo registradas.</p>' : actas.map(a => `
         <div class="card">
-          <p class="section-sub" style="margin:0 0 6px;">
-            ${a.fecha}${a.actividades ? ` · ${a.actividades.codigo} ${a.actividades.nombre}` : ''}
-          </p>
+          <div class="fila-miembro">
+            <p class="section-sub" style="margin:0 0 6px;">
+              ${a.fecha}${a.actividades ? ` · ${a.actividades.codigo} ${a.actividades.nombre}` : ''}
+            </p>
+            <button class="btn-secundario btn-mini" onclick="descargarPdfActaTrabajo('${a.id}')">Descargar PDF</button>
+          </div>
           <p class="section-sub" style="margin:0 0 8px;">Asistentes: ${(a.asistentes || []).join(', ') || '—'}</p>
           ${a.orden_dia ? `<p style="font-size:13px;"><strong>Orden del día:</strong> ${a.orden_dia}</p>` : ''}
           ${a.acuerdos ? `<p style="font-size:13px;"><strong>Acuerdos:</strong> ${a.acuerdos}</p>` : ''}
@@ -842,10 +890,32 @@ async function darBajaMiembro(id){
 }
 
 // --------- ACTAS (con convocatoria integrada) ---------
+let cacheActasComite = {};
+
 function badgeConvocatoria(estado){
   const etiquetas = { convocada:'Convocada', celebrada:'Celebrada', cancelada:'Cancelada' };
   const clase = estado === 'celebrada' ? 'cerrado' : estado === 'cancelada' ? 'pendiente' : 'en_curso';
   return `<span class="select-estado estado-${clase}">${etiquetas[estado] || estado}</span>`;
+}
+
+function descargarPdfActaComite(id){
+  const a = cacheActasComite[id];
+  if (!a) return;
+  const doc = new jspdf.jsPDF();
+  let y = 20;
+  doc.setFontSize(14); doc.text('TuriaViu · Comité Técnico-Científico Asesor', 14, y); y += 8;
+  doc.setFontSize(11); doc.text(`${a.tipo.replace('_',' ')} — ${a.estado_convocatoria}`, 14, y); y += 8;
+  doc.setFontSize(10);
+  doc.text(`Fecha: ${a.fecha}${a.hora ? ' · ' + a.hora.slice(0,5) : ''}`, 14, y); y += 6;
+  if (a.lugar){ doc.text(`Lugar / modalidad: ${a.lugar}`, 14, y); y += 6; }
+  if (a.fecha_envio_convocatoria){ doc.text(`Convocatoria enviada: ${a.fecha_envio_convocatoria}`, 14, y); y += 6; }
+  const asistentes = (a.acta_comite_asistentes || []).map(x => x.comite_miembros?.nombre).filter(Boolean).join(', ') || '—';
+  const asistentesTxt = doc.splitTextToSize(`Asistentes/convocados: ${asistentes}`, 180);
+  asistentesTxt.forEach(l => { doc.text(l, 14, y); y += 6; });
+  y += 2;
+  y = agregarBloquePdf(doc, 'Orden del día', a.orden_dia, y);
+  y = agregarBloquePdf(doc, 'Acuerdos', a.acuerdos, y);
+  doc.save(`acta_comite_${a.fecha}.pdf`);
 }
 
 async function renderActasComite(cont){
@@ -855,6 +925,9 @@ async function renderActasComite(cont){
     .order('fecha', { ascending:false });
 
   if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar las actas: ${error.message}</p>`; return; }
+
+  cacheActasComite = {};
+  (actas || []).forEach(a => cacheActasComite[a.id] = a);
 
   cont.innerHTML = `
     <button class="btn-anadir" onclick="abrirModalActa()">+ Nueva convocatoria / acta</button>
@@ -869,7 +942,10 @@ async function renderActasComite(cont){
               </p>
               ${a.fecha_envio_convocatoria ? `<p class="section-sub" style="margin:0 0 6px;">Convocatoria enviada: ${a.fecha_envio_convocatoria}</p>` : ''}
             </div>
-            ${a.estado_convocatoria === 'convocada' ? `<button class="btn-secundario" onclick="abrirModalCelebrarActa('${a.id}')">Marcar como celebrada</button>` : ''}
+            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+              <button class="btn-secundario btn-mini" onclick="descargarPdfActaComite('${a.id}')">Descargar PDF</button>
+              ${a.estado_convocatoria === 'convocada' ? `<button class="btn-secundario" onclick="abrirModalCelebrarActa('${a.id}')">Marcar como celebrada</button>` : ''}
+            </div>
           </div>
           ${a.orden_dia ? `<p style="font-size:13px;"><strong>Orden del día:</strong> ${a.orden_dia}</p>` : ''}
           ${a.acuerdos ? `<p style="font-size:13px;"><strong>Acuerdos:</strong> ${a.acuerdos}</p>` : ''}
