@@ -259,8 +259,8 @@ const MODULOS = [
   { id:'cronograma',    nombre:'Cronograma',               sprint:1, activo:true  },
   { id:'rrhh',          nombre:'RRHH',                     sprint:2, activo:true  },
   { id:'brigadistas',   nombre:'Brigadistas',              sprint:2, activo:true  },
-  { id:'vivero_campo',  nombre:'Vivero y campo',           sprint:3, activo:false },
-  { id:'bitacora',      nombre:'Cuaderno de bitácora',     sprint:3, activo:false },
+  { id:'vivero_campo',  nombre:'Vivero y campo',           sprint:3, activo:true  },
+  { id:'bitacora',      nombre:'Cuaderno de bitácora',     sprint:3, activo:true  },
   { id:'incidencias',   nombre:'Incidencias',              sprint:1, activo:true  },
   { id:'actas',         nombre:'Actas de trabajo',         sprint:1, activo:true  },
   { id:'comunicacion',  nombre:'Comunicación',              sprint:4, activo:false },
@@ -441,6 +441,31 @@ async function cargarModulo(id){
       </div>
       <div id="contenido-brigadistas"><p class="section-sub">Cargando...</p></div>`;
     await renderBrigadistas();
+  }
+
+  if (id === 'vivero_campo'){
+    main.innerHTML = `
+      <h2>Vivero y campo</h2>
+      <p class="section-sub">Producción del vivero y censos de supervivencia</p>
+      <div class="tabs-comite">
+        <button class="tab-comite activa" data-tab-vc="lotes" onclick="cambiarTabVivero('lotes')">Lotes de vivero</button>
+        <button class="tab-comite" data-tab-vc="censos" onclick="cambiarTabVivero('censos')">Censos de supervivencia</button>
+      </div>
+      <div id="contenido-vivero"><p class="section-sub">Cargando...</p></div>`;
+    await cambiarTabVivero('lotes');
+  }
+
+  if (id === 'bitacora'){
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>Cuaderno de bitácora</h2>
+          <p class="section-sub">Diario de campo — al etiquetar vivero o censo, se registra también ahí</p>
+        </div>
+        <button class="btn-anadir" style="margin:0" onclick="abrirModalBitacora()">+ Nueva entrada</button>
+      </div>
+      <div id="contenido-bitacora"><p class="section-sub">Cargando...</p></div>`;
+    await renderBitacora();
   }
 }
 
@@ -1245,6 +1270,251 @@ async function guardarAsignaciones(brigadistaId){
     if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
   }
   cerrarModal();
+}
+
+// =====================================================================
+// MÓDULO: VIVERO Y CAMPO
+// =====================================================================
+let tabViveroActual = 'lotes';
+
+async function cambiarTabVivero(tab){
+  tabViveroActual = tab;
+  document.querySelectorAll('[data-tab-vc]').forEach(b => b.classList.toggle('activa', b.dataset.tabVc === tab));
+  const cont = document.getElementById('contenido-vivero');
+  cont.innerHTML = '<p class="section-sub">Cargando...</p>';
+  if (tab === 'lotes') await renderLotesVivero(cont);
+  else await renderCensosSupervivencia(cont);
+}
+
+async function renderLotesVivero(cont){
+  const { data: lotes, error } = await sb.from('lotes_vivero').select('*').order('fecha_siembra', { ascending:false });
+  if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar los lotes: ${error.message}</p>`; return; }
+
+  cont.innerHTML = `
+    <button class="btn-anadir" onclick="abrirModalLoteVivero()">+ Nuevo lote</button>
+    <div>
+      ${(!lotes || lotes.length === 0) ? '<p class="section-sub">Todavía no hay lotes registrados.</p>' : lotes.map(l => `
+        <div class="card">
+          <span class="oe-codigo">${l.especie}</span>
+          <p class="section-sub" style="margin:6px 0 0;">Siembra: ${l.fecha_siembra} · Cantidad: ${l.cantidad_sembrada}${l.tasa_germinacion_pct != null ? ` · Germinación: ${l.tasa_germinacion_pct}%` : ''}</p>
+          ${l.notas ? `<p style="font-size:13px; margin:6px 0 0;">${l.notas}</p>` : ''}
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+function abrirModalLoteVivero(){
+  abrirModal('Nuevo lote de vivero', `
+    <div class="form-grid">
+      <input id="lv-especie" placeholder="Especie">
+      <input id="lv-cantidad" type="number" placeholder="Cantidad sembrada">
+      <input id="lv-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <input id="lv-germinacion" type="number" step="0.1" placeholder="% germinación (opcional)">
+    </div>
+    <textarea id="lv-notas" placeholder="Notas" class="textarea-comite"></textarea>
+    <button class="btn-primary btn-inline" onclick="crearLoteVivero()">Guardar</button>
+    <div id="lote-vivero-msg" class="section-sub"></div>
+  `);
+}
+
+async function crearLoteVivero(){
+  const msg = document.getElementById('lote-vivero-msg');
+  const especie = document.getElementById('lv-especie').value.trim();
+  if (!especie){ msg.textContent = 'La especie es obligatoria.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+
+  const { error } = await sb.from('lotes_vivero').insert({
+    proyecto_id: proyecto.id,
+    especie,
+    cantidad_sembrada: document.getElementById('lv-cantidad').value || 0,
+    fecha_siembra: document.getElementById('lv-fecha').value,
+    tasa_germinacion_pct: document.getElementById('lv-germinacion').value || null,
+    notas: document.getElementById('lv-notas').value.trim() || null,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderLotesVivero(document.getElementById('contenido-vivero'));
+}
+
+async function renderCensosSupervivencia(cont){
+  const { data: censos, error } = await sb.from('censos_supervivencia').select('*').order('fecha_censo', { ascending:false });
+  if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar los censos: ${error.message}</p>`; return; }
+
+  cont.innerHTML = `
+    <button class="btn-anadir" onclick="abrirModalCenso()">+ Nuevo censo</button>
+    <div>
+      ${(!censos || censos.length === 0) ? '<p class="section-sub">Todavía no hay censos registrados.</p>' : censos.map(c => {
+        const tasa = (c.plantas_censadas && c.plantas_vivas != null) ? Math.round((c.plantas_vivas / c.plantas_censadas) * 100) : null;
+        return `
+        <div class="card">
+          <span class="oe-codigo">${c.meses_transcurridos ? c.meses_transcurridos + ' meses' : 'Censo'}</span>
+          <p class="section-sub" style="margin:6px 0 0;">${c.fecha_censo}${c.especie ? ' · ' + c.especie : ''}${c.hectareas_intervenidas ? ' · ' + c.hectareas_intervenidas + ' ha' : ''}</p>
+          <p style="font-size:13px; margin:6px 0 0;">
+            ${c.plantas_censadas ?? '—'} censadas · ${c.plantas_vivas ?? '—'} vivas
+            ${tasa != null ? ` · <strong>${tasa}% supervivencia</strong>` : ''}
+          </p>
+          ${c.notas ? `<p style="font-size:13px; margin:6px 0 0;">${c.notas}</p>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function abrirModalCenso(){
+  abrirModal('Nuevo censo de supervivencia', `
+    <div class="form-grid">
+      <input id="cs-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <select id="cs-meses">
+        <option value="3">3 meses</option>
+        <option value="12">12 meses</option>
+        <option value="18">18 meses</option>
+      </select>
+      <input id="cs-especie" placeholder="Especie (opcional)">
+      <input id="cs-hectareas" type="number" step="0.1" placeholder="Hectáreas intervenidas">
+      <input id="cs-censadas" type="number" placeholder="Plantas censadas">
+      <input id="cs-vivas" type="number" placeholder="Plantas vivas">
+    </div>
+    <textarea id="cs-notas" placeholder="Notas" class="textarea-comite"></textarea>
+    <button class="btn-primary btn-inline" onclick="crearCenso()">Guardar</button>
+    <div id="censo-msg" class="section-sub"></div>
+  `);
+}
+
+async function crearCenso(){
+  const msg = document.getElementById('censo-msg');
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+
+  const { error } = await sb.from('censos_supervivencia').insert({
+    proyecto_id: proyecto.id,
+    fecha_censo: document.getElementById('cs-fecha').value,
+    meses_transcurridos: document.getElementById('cs-meses').value,
+    especie: document.getElementById('cs-especie').value.trim() || null,
+    hectareas_intervenidas: document.getElementById('cs-hectareas').value || null,
+    plantas_censadas: document.getElementById('cs-censadas').value || null,
+    plantas_vivas: document.getElementById('cs-vivas').value || null,
+    notas: document.getElementById('cs-notas').value.trim() || null,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderCensosSupervivencia(document.getElementById('contenido-vivero'));
+}
+
+// =====================================================================
+// MÓDULO: CUADERNO DE BITÁCORA
+// =====================================================================
+async function renderBitacora(){
+  const cont = document.getElementById('contenido-bitacora');
+  const { data: entradas, error } = await sb.from('bitacora').select('*').order('fecha', { ascending:false });
+  if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar las entradas: ${error.message}</p>`; return; }
+
+  const etiquetasTipo = { general:'General', vivero:'Producción de vivero', censo:'Censo de supervivencia' };
+
+  cont.innerHTML = (!entradas || entradas.length === 0) ? '<p class="section-sub">Todavía no hay entradas en la bitácora.</p>' : entradas.map(e => `
+    <div class="card">
+      <span class="oe-codigo">${etiquetasTipo[e.tipo] || e.tipo}</span>
+      <p class="section-sub" style="margin:6px 0 0;">${e.fecha}</p>
+      <p style="font-size:13px; white-space:pre-line; margin:6px 0 0;">${e.contenido}</p>
+      ${e.lote_creado_id ? '<p class="section-sub" style="margin:6px 0 0; color:var(--verde-bosque);">→ Registrado en Vivero y campo (lote)</p>' : ''}
+      ${e.censo_creado_id ? '<p class="section-sub" style="margin:6px 0 0; color:var(--verde-bosque);">→ Registrado en Vivero y campo (censo)</p>' : ''}
+    </div>
+  `).join('');
+}
+
+function abrirModalBitacora(){
+  abrirModal('Nueva entrada de bitácora', `
+    <div class="form-grid">
+      <input id="bt-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <select id="bt-tipo" onchange="cambiarCamposBitacora()">
+        <option value="general">General</option>
+        <option value="vivero">Producción de vivero</option>
+        <option value="censo">Censo de supervivencia</option>
+      </select>
+    </div>
+    <textarea id="bt-contenido" placeholder="¿Qué se ha hecho hoy?" class="textarea-comite"></textarea>
+
+    <div id="bt-campos-vivero" style="display:none;">
+      <p class="section-sub" style="margin:8px 0 4px; font-weight:600;">Se creará un lote de vivero con estos datos:</p>
+      <div class="form-grid">
+        <input id="bt-especie-vivero" placeholder="Especie">
+        <input id="bt-cantidad-vivero" type="number" placeholder="Cantidad sembrada">
+        <input id="bt-germinacion-vivero" type="number" step="0.1" placeholder="% germinación (opcional)">
+      </div>
+    </div>
+
+    <div id="bt-campos-censo" style="display:none;">
+      <p class="section-sub" style="margin:8px 0 4px; font-weight:600;">Se creará un censo de supervivencia con estos datos:</p>
+      <div class="form-grid">
+        <select id="bt-meses-censo">
+          <option value="3">3 meses</option>
+          <option value="12">12 meses</option>
+          <option value="18">18 meses</option>
+        </select>
+        <input id="bt-especie-censo" placeholder="Especie (opcional)">
+        <input id="bt-hectareas-censo" type="number" step="0.1" placeholder="Hectáreas intervenidas">
+        <input id="bt-censadas-censo" type="number" placeholder="Plantas censadas">
+        <input id="bt-vivas-censo" type="number" placeholder="Plantas vivas">
+      </div>
+    </div>
+
+    <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="crearEntradaBitacora()">Guardar</button>
+    <div id="bitacora-msg" class="section-sub"></div>
+  `);
+}
+
+function cambiarCamposBitacora(){
+  const tipo = document.getElementById('bt-tipo').value;
+  document.getElementById('bt-campos-vivero').style.display = tipo === 'vivero' ? 'block' : 'none';
+  document.getElementById('bt-campos-censo').style.display = tipo === 'censo' ? 'block' : 'none';
+}
+
+async function crearEntradaBitacora(){
+  const msg = document.getElementById('bitacora-msg');
+  const contenido = document.getElementById('bt-contenido').value.trim();
+  if (!contenido){ msg.textContent = 'Escribe algo antes de guardar.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+  const fecha = document.getElementById('bt-fecha').value;
+  const tipo = document.getElementById('bt-tipo').value;
+
+  let loteCreadoId = null, censoCreadoId = null;
+
+  if (tipo === 'vivero'){
+    const especie = document.getElementById('bt-especie-vivero').value.trim();
+    if (!especie){ msg.textContent = 'Indica la especie para crear el lote.'; return; }
+    const { data: lote, error: errLote } = await sb.from('lotes_vivero').insert({
+      proyecto_id: proyecto.id,
+      especie,
+      cantidad_sembrada: document.getElementById('bt-cantidad-vivero').value || 0,
+      fecha_siembra: fecha,
+      tasa_germinacion_pct: document.getElementById('bt-germinacion-vivero').value || null,
+      notas: contenido,
+    }).select().single();
+    if (errLote){ msg.textContent = 'Error al crear el lote: ' + errLote.message; return; }
+    loteCreadoId = lote.id;
+  }
+
+  if (tipo === 'censo'){
+    const { data: censo, error: errCenso } = await sb.from('censos_supervivencia').insert({
+      proyecto_id: proyecto.id,
+      fecha_censo: fecha,
+      meses_transcurridos: document.getElementById('bt-meses-censo').value,
+      especie: document.getElementById('bt-especie-censo').value.trim() || null,
+      hectareas_intervenidas: document.getElementById('bt-hectareas-censo').value || null,
+      plantas_censadas: document.getElementById('bt-censadas-censo').value || null,
+      plantas_vivas: document.getElementById('bt-vivas-censo').value || null,
+      notas: contenido,
+    }).select().single();
+    if (errCenso){ msg.textContent = 'Error al crear el censo: ' + errCenso.message; return; }
+    censoCreadoId = censo.id;
+  }
+
+  const { error } = await sb.from('bitacora').insert({
+    proyecto_id: proyecto.id,
+    fecha, tipo, contenido,
+    lote_creado_id: loteCreadoId,
+    censo_creado_id: censoCreadoId,
+  });
+  if (error){ msg.textContent = 'Error al guardar la entrada: ' + error.message; return; }
+  cerrarModal();
+  await renderBitacora();
 }
 
 // =====================================================================
