@@ -845,11 +845,15 @@ const CONFIG_CSV = {
   brigadistas: {
     titulo: 'Actualizar Brigadistas desde CSV',
     tabla: 'brigadistas',
-    columnas: ['nombre','fecha_alta','horas_formacion_tecnica','horas_formacion_transversal','sesiones_tutorizacion_psicosocial','estado_portfolio','estado_insercion','tipo_salida','fecha_insercion'],
-    ejemplo: 'Nombre Apellido,2026-06-01,20,8,2,en_progreso,no_insertado,,',
+    columnas: ['nombre','dni_nie','fecha_nacimiento','telefono','email','fecha_alta','horas_formacion_tecnica','horas_formacion_transversal','sesiones_tutorizacion_psicosocial','estado_portfolio','estado_insercion','tipo_salida','fecha_insercion'],
+    ejemplo: 'Nombre Apellido,12345678A,1995-03-10,600000000,nombre@ejemplo.com,2026-06-01,20,8,2,en_progreso,no_insertado,,',
     refrescar: () => renderBrigadistas(),
     mapaFila: (fila) => ({
       nombre: (fila.nombre || '').trim(),
+      dni_nie: fila.dni_nie?.trim() || null,
+      fecha_nacimiento: fila.fecha_nacimiento?.trim() || null,
+      telefono: fila.telefono?.trim() || null,
+      email: fila.email?.trim() || null,
       fecha_alta: fila.fecha_alta?.trim() || null,
       horas_formacion_tecnica: fila.horas_formacion_tecnica ? parseFloat(fila.horas_formacion_tecnica) : 0,
       horas_formacion_transversal: fila.horas_formacion_transversal ? parseFloat(fila.horas_formacion_transversal) : 0,
@@ -1075,6 +1079,7 @@ async function renderBrigadistas(){
     <div class="card fila-miembro">
       <div>
         <strong>${b.nombre}</strong>
+        <p class="section-sub" style="margin:2px 0 0">${b.dni_nie ?? 'Sin DNI/NIE'}${b.telefono ? ' · ' + b.telefono : ''}${b.email ? ' · ' + b.email : ''}</p>
         <p class="section-sub" style="margin:2px 0 0">Formación: ${b.horas_formacion_tecnica}h técnica · ${b.horas_formacion_transversal}h transversal (meta: 300h / 120h)</p>
         <p class="section-sub" style="margin:2px 0 0">Tutorización psicosocial: ${b.sesiones_tutorizacion_psicosocial} sesiones</p>
         <p class="section-sub" style="margin:2px 0 0">Portfolio: ${ETIQUETAS_PORTFOLIO[b.estado_portfolio] || b.estado_portfolio} · Inserción: ${ETIQUETAS_INSERCION[b.estado_insercion] || b.estado_insercion}${b.tipo_salida ? ' (' + b.tipo_salida + ')' : ''}</p>
@@ -1093,28 +1098,52 @@ async function renderBrigadistas(){
 
 function abrirModalBrigadista(id){
   const b = id ? cacheBrigadistas[id] : null;
-  abrirModal(b ? 'Editar brigadista' : 'Añadir brigadista', `
+  const campoIntake = (label, inputId, tipo, valor) => `
+    <div>
+      <label class="section-sub" style="display:block; margin-bottom:4px;">${label}</label>
+      <input id="${inputId}" type="${tipo}" value="${valor ?? ''}">
+    </div>`;
+
+  const bloqueSeguimiento = !id ? '' : `
+    <p class="section-sub" style="margin:16px 0 4px; font-weight:600;">Seguimiento (se actualiza con el tiempo)</p>
     <div class="form-grid">
-      <input id="br-nombre" placeholder="Nombre y apellidos" value="${b?.nombre ?? ''}">
-      <input id="br-fecha-alta" type="date" value="${b?.fecha_alta ?? new Date().toISOString().slice(0,10)}">
-      <input id="br-horas-tecnica" type="number" step="0.5" placeholder="Horas formación técnica" value="${b?.horas_formacion_tecnica ?? 0}">
-      <input id="br-horas-transversal" type="number" step="0.5" placeholder="Horas formación transversal" value="${b?.horas_formacion_transversal ?? 0}">
-      <input id="br-sesiones" type="number" placeholder="Sesiones tutorización" value="${b?.sesiones_tutorizacion_psicosocial ?? 0}">
-      <select id="br-portfolio">
-        <option value="no_iniciado" ${b?.estado_portfolio==='no_iniciado'?'selected':''}>Portfolio: no iniciado</option>
-        <option value="en_progreso" ${b?.estado_portfolio==='en_progreso'?'selected':''}>Portfolio: en progreso</option>
-        <option value="completado" ${b?.estado_portfolio==='completado'?'selected':''}>Portfolio: completado</option>
-      </select>
-      <select id="br-insercion">
-        <option value="no_insertado" ${b?.estado_insercion==='no_insertado'?'selected':''}>Inserción: no insertado</option>
-        <option value="en_proceso" ${b?.estado_insercion==='en_proceso'?'selected':''}>Inserción: en proceso</option>
-        <option value="insertado" ${b?.estado_insercion==='insertado'?'selected':''}>Inserción: insertado</option>
-      </select>
-      <input id="br-tipo-salida" placeholder="Tipo de salida (si insertado)" value="${b?.tipo_salida ?? ''}">
-      <input id="br-fecha-insercion" type="date" value="${b?.fecha_insercion ?? ''}">
+      ${campoIntake('Horas formación técnica', 'br-horas-tecnica', 'number', b?.horas_formacion_tecnica ?? 0)}
+      ${campoIntake('Horas formación transversal', 'br-horas-transversal', 'number', b?.horas_formacion_transversal ?? 0)}
+      ${campoIntake('Sesiones de tutorización', 'br-sesiones', 'number', b?.sesiones_tutorizacion_psicosocial ?? 0)}
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Estado del portfolio</label>
+        <select id="br-portfolio">
+          <option value="no_iniciado" ${b?.estado_portfolio==='no_iniciado'?'selected':''}>No iniciado</option>
+          <option value="en_progreso" ${b?.estado_portfolio==='en_progreso'?'selected':''}>En progreso</option>
+          <option value="completado" ${b?.estado_portfolio==='completado'?'selected':''}>Completado</option>
+        </select>
+      </div>
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Estado de inserción</label>
+        <select id="br-insercion">
+          <option value="no_insertado" ${b?.estado_insercion==='no_insertado'?'selected':''}>No insertado</option>
+          <option value="en_proceso" ${b?.estado_insercion==='en_proceso'?'selected':''}>En proceso</option>
+          <option value="insertado" ${b?.estado_insercion==='insertado'?'selected':''}>Insertado</option>
+        </select>
+      </div>
+      ${campoIntake('Tipo de salida (si insertado)', 'br-tipo-salida', 'text', b?.tipo_salida)}
+      ${campoIntake('Fecha de inserción', 'br-fecha-insercion', 'date', b?.fecha_insercion)}
     </div>
-    <textarea id="br-notas" placeholder="Notas de tutorización psicosocial (dato sensible)" class="textarea-comite">${b?.notas_tutorizacion ?? ''}</textarea>
-    <button class="btn-primary btn-inline" onclick="guardarBrigadista(${id ? `'${id}'` : 'null'})">Guardar</button>
+    <label class="section-sub" style="display:block; margin:10px 0 4px;">Notas de tutorización psicosocial (dato sensible)</label>
+    <textarea id="br-notas" class="textarea-comite">${b?.notas_tutorizacion ?? ''}</textarea>`;
+
+  abrirModal(b ? 'Editar brigadista' : 'Añadir brigadista', `
+    <p class="section-sub" style="margin:0 0 4px; font-weight:600;">Datos de alta</p>
+    <div class="form-grid">
+      ${campoIntake('Nombre y apellidos', 'br-nombre', 'text', b?.nombre)}
+      ${campoIntake('DNI / NIE', 'br-dni', 'text', b?.dni_nie)}
+      ${campoIntake('Fecha de nacimiento', 'br-fecha-nacimiento', 'date', b?.fecha_nacimiento)}
+      ${campoIntake('Teléfono', 'br-telefono', 'text', b?.telefono)}
+      ${campoIntake('Correo electrónico', 'br-email', 'email', b?.email)}
+      ${campoIntake('Fecha de alta', 'br-fecha-alta', 'date', b?.fecha_alta ?? new Date().toISOString().slice(0,10))}
+    </div>
+    ${bloqueSeguimiento}
+    <button class="btn-primary btn-inline" style="margin-top:12px;" onclick="guardarBrigadista(${id ? `'${id}'` : 'null'})">Guardar</button>
     <div id="brigadista-msg" class="section-sub"></div>
   `);
 }
@@ -1126,16 +1155,25 @@ async function guardarBrigadista(id){
 
   const datos = {
     nombre,
+    dni_nie: document.getElementById('br-dni').value.trim() || null,
+    fecha_nacimiento: document.getElementById('br-fecha-nacimiento').value || null,
+    telefono: document.getElementById('br-telefono').value.trim() || null,
+    email: document.getElementById('br-email').value.trim() || null,
     fecha_alta: document.getElementById('br-fecha-alta').value,
-    horas_formacion_tecnica: document.getElementById('br-horas-tecnica').value || 0,
-    horas_formacion_transversal: document.getElementById('br-horas-transversal').value || 0,
-    sesiones_tutorizacion_psicosocial: document.getElementById('br-sesiones').value || 0,
-    estado_portfolio: document.getElementById('br-portfolio').value,
-    estado_insercion: document.getElementById('br-insercion').value,
-    tipo_salida: document.getElementById('br-tipo-salida').value.trim() || null,
-    fecha_insercion: document.getElementById('br-fecha-insercion').value || null,
-    notas_tutorizacion: document.getElementById('br-notas').value.trim() || null,
   };
+
+  // Los campos de seguimiento solo existen en el formulario cuando se edita
+  const campoSeguimiento = document.getElementById('br-horas-tecnica');
+  if (campoSeguimiento){
+    datos.horas_formacion_tecnica = document.getElementById('br-horas-tecnica').value || 0;
+    datos.horas_formacion_transversal = document.getElementById('br-horas-transversal').value || 0;
+    datos.sesiones_tutorizacion_psicosocial = document.getElementById('br-sesiones').value || 0;
+    datos.estado_portfolio = document.getElementById('br-portfolio').value;
+    datos.estado_insercion = document.getElementById('br-insercion').value;
+    datos.tipo_salida = document.getElementById('br-tipo-salida').value.trim() || null;
+    datos.fecha_insercion = document.getElementById('br-fecha-insercion').value || null;
+    datos.notas_tutorizacion = document.getElementById('br-notas').value.trim() || null;
+  }
 
   let error;
   if (id){
