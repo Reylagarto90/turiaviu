@@ -263,7 +263,7 @@ const MODULOS = [
   { id:'bitacora',      nombre:'Cuaderno de bitácora',     sprint:3, activo:true  },
   { id:'incidencias',   nombre:'Incidencias',              sprint:1, activo:true  },
   { id:'actas',         nombre:'Actas de trabajo',         sprint:1, activo:true  },
-  { id:'comunicacion',  nombre:'Comunicación',              sprint:4, activo:false },
+  { id:'comunicacion',  nombre:'Comunicación',              sprint:4, activo:true  },
   { id:'presupuesto',   nombre:'Presupuesto',              sprint:4, activo:false },
   { id:'comite',        nombre:'Comité e informes',        sprint:4, activo:true  },
 ];
@@ -466,6 +466,19 @@ async function cargarModulo(id){
       </div>
       <div id="contenido-bitacora"><p class="section-sub">Cargando...</p></div>`;
     await renderBitacora();
+  }
+
+  if (id === 'comunicacion'){
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>Comunicación</h2>
+          <p class="section-sub">Se refleja automáticamente en los indicadores 4.1-4.4 de "Objetivos e indicadores"</p>
+        </div>
+        <button class="btn-anadir" style="margin:0" onclick="abrirModalComunicacion()">+ Nueva entrada</button>
+      </div>
+      <div id="contenido-comunicacion"><p class="section-sub">Cargando...</p></div>`;
+    await renderComunicacion();
   }
 }
 
@@ -1515,6 +1528,101 @@ async function crearEntradaBitacora(){
   if (error){ msg.textContent = 'Error al guardar la entrada: ' + error.message; return; }
   cerrarModal();
   await renderBitacora();
+}
+
+// =====================================================================
+// MÓDULO: COMUNICACIÓN
+// =====================================================================
+const ETIQUETAS_TIPO_COMUNICACION = {
+  publicacion_red: 'Publicación en redes', entrada_blog: 'Entrada de blog', video: 'Vídeo documental',
+  ecoaula: 'Ecoaula', voluntariado: 'Voluntariado', sensibilizacion_otra: 'Otra sensibilización'
+};
+
+async function renderComunicacion(){
+  const cont = document.getElementById('contenido-comunicacion');
+  const { data: entradas, error } = await sb.from('actividades_comunicacion').select('*').order('fecha', { ascending:false });
+  if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar las entradas: ${error.message}</p>`; return; }
+
+  cont.innerHTML = (!entradas || entradas.length === 0) ? '<p class="section-sub">Todavía no hay actividades de comunicación registradas.</p>' : entradas.map(e => `
+    <div class="card">
+      <span class="oe-codigo">${ETIQUETAS_TIPO_COMUNICACION[e.tipo] || e.tipo}</span>
+      <p class="section-sub" style="margin:6px 0 0;">${e.fecha}${e.personas_alcanzadas ? ` · ${e.personas_alcanzadas} personas` : ''}</p>
+      <p style="font-size:13px; margin:6px 0 0;"><strong>${e.titulo}</strong></p>
+      ${e.enlace_url ? `<p class="section-sub" style="margin:4px 0 0;"><a href="${e.enlace_url}" target="_blank">Ver enlace</a></p>` : ''}
+      ${e.notas ? `<p style="font-size:13px; margin:6px 0 0;">${e.notas}</p>` : ''}
+    </div>
+  `).join('');
+}
+
+function abrirModalComunicacion(){
+  abrirModal('Nueva actividad de comunicación', `
+    <div class="form-grid">
+      <select id="cm-tipo" onchange="cambiarCamposComunicacion()">
+        <option value="publicacion_red">Publicación en redes</option>
+        <option value="entrada_blog">Entrada de blog</option>
+        <option value="video">Vídeo documental</option>
+        <option value="ecoaula">Ecoaula</option>
+        <option value="voluntariado">Jornada de voluntariado</option>
+        <option value="sensibilizacion_otra">Otra actividad de sensibilización</option>
+      </select>
+      <input id="cm-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+    </div>
+    <input id="cm-titulo" placeholder="Título / descripción breve" style="margin-bottom:10px;">
+    <input id="cm-enlace" placeholder="Enlace (opcional)" style="margin-bottom:10px;">
+    <div id="cm-campo-personas" style="display:none; margin-bottom:10px;">
+      <label class="section-sub" style="display:block; margin-bottom:4px;">Personas alcanzadas (suma al indicador 4.1)</label>
+      <input id="cm-personas" type="number" placeholder="Nº de personas">
+    </div>
+    <textarea id="cm-notas" placeholder="Notas (opcional)" class="textarea-comite"></textarea>
+    <button class="btn-primary btn-inline" onclick="crearComunicacion()">Guardar</button>
+    <div id="comunicacion-msg" class="section-sub"></div>
+  `);
+  cambiarCamposComunicacion();
+}
+
+function cambiarCamposComunicacion(){
+  const tipo = document.getElementById('cm-tipo').value;
+  const mostrar = ['ecoaula','voluntariado','sensibilizacion_otra'].includes(tipo);
+  document.getElementById('cm-campo-personas').style.display = mostrar ? 'block' : 'none';
+}
+
+async function crearComunicacion(){
+  const msg = document.getElementById('comunicacion-msg');
+  const titulo = document.getElementById('cm-titulo').value.trim();
+  if (!titulo){ msg.textContent = 'El título es obligatorio.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+  const tipo = document.getElementById('cm-tipo').value;
+  const fecha = document.getElementById('cm-fecha').value;
+  const personas = document.getElementById('cm-personas').value || null;
+
+  const { error } = await sb.from('actividades_comunicacion').insert({
+    proyecto_id: proyecto.id,
+    tipo, fecha, titulo,
+    enlace_url: document.getElementById('cm-enlace').value.trim() || null,
+    personas_alcanzadas: personas,
+    notas: document.getElementById('cm-notas').value.trim() || null,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+
+  // Incrementa automáticamente el/los indicador(es) correspondientes
+  const incrementos = {
+    publicacion_red: [['Indicador 4.4a', 1]],
+    entrada_blog: [['Indicador 4.4b', 1]],
+    video: [['Indicador 4.4c', 1]],
+    ecoaula: [['Indicador 4.2', 1]],
+    voluntariado: [['Indicador 4.3', 1]],
+    sensibilizacion_otra: [],
+  }[tipo] || [];
+
+  if (personas && ['ecoaula','voluntariado','sensibilizacion_otra'].includes(tipo)){
+    incrementos.push(['Indicador 4.1', parseInt(personas)]);
+  }
+  for (const [codigo, delta] of incrementos){
+    await sb.rpc('incrementar_indicador', { p_codigo: codigo, p_delta: delta });
+  }
+
+  cerrarModal();
+  await renderComunicacion();
 }
 
 // =====================================================================
