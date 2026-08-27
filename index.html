@@ -261,7 +261,7 @@ const MODULOS = [
   { id:'brigadistas',   nombre:'Brigadistas',              sprint:2, activo:false },
   { id:'vivero_campo',  nombre:'Vivero y campo',           sprint:3, activo:false },
   { id:'bitacora',      nombre:'Cuaderno de bitácora',     sprint:3, activo:false },
-  { id:'incidencias',   nombre:'Incidencias',              sprint:1, activo:false },
+  { id:'incidencias',   nombre:'Incidencias',              sprint:1, activo:true  },
   { id:'actas',         nombre:'Actas de trabajo',         sprint:1, activo:true  },
   { id:'comunicacion',  nombre:'Comunicación',              sprint:4, activo:false },
   { id:'presupuesto',   nombre:'Presupuesto',              sprint:4, activo:false },
@@ -368,6 +368,25 @@ async function cargarModulo(id){
       <p class="section-sub">Reuniones de coordinación interna del equipo AFEMPES</p>
       <div id="contenido-actas-trabajo"><p class="section-sub">Cargando...</p></div>`;
     await renderActasTrabajo();
+  }
+
+  if (id === 'incidencias'){
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>Incidencias</h2>
+          <p class="section-sub">Condicionantes y problemas que afectan al proyecto</p>
+        </div>
+        <button class="btn-anadir" style="margin:0" onclick="abrirModalIncidencia()">+ Nueva incidencia</button>
+      </div>
+      <div class="tabs-comite" id="filtros-incidencias">
+        <button class="tab-comite activa" data-filtro="todas" onclick="filtrarIncidencias('todas')">Todas</button>
+        <button class="tab-comite" data-filtro="abierta" onclick="filtrarIncidencias('abierta')">Abiertas</button>
+        <button class="tab-comite" data-filtro="en_curso" onclick="filtrarIncidencias('en_curso')">En curso</button>
+        <button class="tab-comite" data-filtro="cerrada" onclick="filtrarIncidencias('cerrada')">Cerradas</button>
+      </div>
+      <div id="contenido-incidencias"><p class="section-sub">Cargando...</p></div>`;
+    await renderIncidencias('todas');
   }
 }
 
@@ -604,6 +623,147 @@ async function confirmarConvertirIncidencia(registroId, actividadId){
   } else {
     contenedor.innerHTML = `<p class="section-sub" style="color:var(--verde-bosque)">Incidencia creada correctamente.</p>`;
   }
+}
+
+// =====================================================================
+// MÓDULO: INCIDENCIAS
+// =====================================================================
+let cacheIncidencias = {};
+let filtroIncidenciaActual = 'todas';
+
+const ETIQUETAS_TIPO_INCIDENCIA = {
+  salud_seguridad:'Salud/seguridad', tecnica:'Técnica', administrativa_permisos:'Administrativa/permisos',
+  climatica:'Climática', rrhh:'RRHH', brigadista:'Brigadista', otra:'Otra'
+};
+const ETIQUETAS_GRAVEDAD = { 1:'Leve', 2:'Moderada', 3:'Grave' };
+
+async function filtrarIncidencias(filtro){
+  filtroIncidenciaActual = filtro;
+  document.querySelectorAll('#filtros-incidencias .tab-comite').forEach(b => b.classList.toggle('activa', b.dataset.filtro === filtro));
+  await renderIncidencias(filtro);
+}
+
+async function renderIncidencias(filtro){
+  const cont = document.getElementById('contenido-incidencias');
+  let query = sb.from('incidencias')
+    .select('*, actividades(codigo, nombre), indicadores(codigo, descripcion)')
+    .order('fecha', { ascending:false });
+  if (filtro !== 'todas') query = query.eq('estado', filtro);
+  const { data: incidencias, error } = await query;
+
+  if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar las incidencias: ${error.message}</p>`; return; }
+
+  cacheIncidencias = {};
+  (incidencias || []).forEach(i => cacheIncidencias[i.id] = i);
+
+  cont.innerHTML = (!incidencias || incidencias.length === 0)
+    ? '<p class="section-sub">No hay incidencias con este filtro.</p>'
+    : incidencias.map(i => `
+      <div class="card">
+        <div class="fila-miembro">
+          <div>
+            <span class="oe-codigo">${ETIQUETAS_TIPO_INCIDENCIA[i.tipo] || i.tipo}</span>
+            <span class="badge-rol" style="background:${i.gravedad==3?'var(--rosa-dark)':i.gravedad==2?'var(--rosa)':'var(--salvia)'}; color:${i.gravedad==3?'#fff':'var(--verde-bosque-dark)'};">${ETIQUETAS_GRAVEDAD[i.gravedad]}</span>
+            <p class="section-sub" style="margin:6px 0 0;">
+              ${i.fecha}${i.actividades ? ` · ${i.actividades.codigo} ${i.actividades.nombre}` : ''}${i.indicadores ? ` · Indicador ${i.indicadores.codigo}` : ''}
+            </p>
+          </div>
+          <button class="btn-secundario" onclick="abrirModalGestionarIncidencia('${i.id}')">Gestionar</button>
+        </div>
+        <p style="font-size:13px; margin:8px 0 0;">${i.descripcion}</p>
+        ${i.accion_correctora ? `<p style="font-size:13px; margin:6px 0 0;"><strong>Acción correctora:</strong> ${i.accion_correctora}</p>` : ''}
+        <p style="margin:8px 0 0;">${badgeEstadoIncidencia(i.estado)} ${i.fecha_cierre ? `<span class="section-sub">Cerrada: ${i.fecha_cierre}</span>` : ''}</p>
+      </div>
+    `).join('');
+}
+
+function badgeEstadoIncidencia(estado){
+  const etiquetas = { abierta:'Abierta', en_curso:'En curso', cerrada:'Cerrada' };
+  const clase = estado === 'cerrada' ? 'cerrado' : estado === 'en_curso' ? 'en_curso' : 'pendiente';
+  return `<span class="select-estado estado-${clase}">${etiquetas[estado] || estado}</span>`;
+}
+
+async function abrirModalIncidencia(){
+  const { data: actividades } = await sb.from('actividades').select('id, codigo, nombre').order('codigo');
+  const { data: indicadores } = await sb.from('indicadores').select('id, codigo, descripcion, objetivos(codigo)').order('codigo');
+  abrirModal('Nueva incidencia', `
+    <div class="form-grid">
+      <input id="ni-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <select id="ni-tipo">
+        ${Object.entries(ETIQUETAS_TIPO_INCIDENCIA).map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
+      </select>
+      <select id="ni-gravedad">
+        <option value="1">Leve</option>
+        <option value="2">Moderada</option>
+        <option value="3">Grave</option>
+      </select>
+      <select id="ni-actividad">
+        <option value="">Sin actividad relacionada</option>
+        ${(actividades || []).map(a => `<option value="${a.id}">${a.codigo} · ${a.nombre.slice(0,40)}</option>`).join('')}
+      </select>
+      <select id="ni-indicador">
+        <option value="">Sin indicador relacionado</option>
+        ${(indicadores || []).map(i => `<option value="${i.id}">${i.objetivos?.codigo ?? ''} · ${i.codigo} — ${i.descripcion.slice(0,35)}</option>`).join('')}
+      </select>
+    </div>
+    <textarea id="ni-descripcion" placeholder="Descripción de la incidencia" class="textarea-comite"></textarea>
+    <button class="btn-primary btn-inline" onclick="crearIncidencia()">Guardar</button>
+    <div id="incidencia-msg" class="section-sub"></div>
+  `);
+}
+
+async function crearIncidencia(){
+  const msg = document.getElementById('incidencia-msg');
+  const descripcion = document.getElementById('ni-descripcion').value.trim();
+  if (!descripcion){ msg.textContent = 'Describe la incidencia antes de guardar.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+
+  const { error } = await sb.from('incidencias').insert({
+    proyecto_id: proyecto.id,
+    fecha: document.getElementById('ni-fecha').value,
+    tipo: document.getElementById('ni-tipo').value,
+    gravedad: document.getElementById('ni-gravedad').value,
+    actividad_id: document.getElementById('ni-actividad').value || null,
+    indicador_id: document.getElementById('ni-indicador').value || null,
+    descripcion,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderIncidencias(filtroIncidenciaActual);
+}
+
+function abrirModalGestionarIncidencia(id){
+  const i = cacheIncidencias[id];
+  if (!i) return;
+  abrirModal('Gestionar incidencia', `
+    <p style="font-size:13px; margin:0 0 12px;">${i.descripcion}</p>
+    <div class="form-grid">
+      <select id="gi-estado">
+        <option value="abierta" ${i.estado==='abierta'?'selected':''}>Abierta</option>
+        <option value="en_curso" ${i.estado==='en_curso'?'selected':''}>En curso</option>
+        <option value="cerrada" ${i.estado==='cerrada'?'selected':''}>Cerrada</option>
+      </select>
+      <input id="gi-fecha-cierre" type="date" value="${i.fecha_cierre ?? ''}" placeholder="Fecha de cierre">
+    </div>
+    <textarea id="gi-accion" placeholder="Acción correctora" class="textarea-comite">${i.accion_correctora ?? ''}</textarea>
+    <button class="btn-primary btn-inline" onclick="guardarGestionIncidencia('${id}')">Guardar</button>
+    <div id="gestion-incidencia-msg" class="section-sub"></div>
+  `);
+}
+
+async function guardarGestionIncidencia(id){
+  const msg = document.getElementById('gestion-incidencia-msg');
+  const estado = document.getElementById('gi-estado').value;
+  const fechaCierreInput = document.getElementById('gi-fecha-cierre').value;
+
+  const { error } = await sb.from('incidencias').update({
+    estado,
+    accion_correctora: document.getElementById('gi-accion').value.trim() || null,
+    fecha_cierre: estado === 'cerrada' ? (fechaCierreInput || new Date().toISOString().slice(0,10)) : (fechaCierreInput || null),
+  }).eq('id', id);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderIncidencias(filtroIncidenciaActual);
 }
 
 // =====================================================================
