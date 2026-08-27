@@ -268,6 +268,10 @@ const MODULOS = [
   { id:'comite',        nombre:'Comité e informes',        sprint:4, activo:true  },
 ];
 
+const MODULOS_BRIGADISTA = [
+  { id:'mi_diario', nombre:'Mi diario', activo:true },
+];
+
 let moduloActual = 'nucleo';
 
 async function iniciarSesion(){
@@ -286,19 +290,28 @@ async function cerrarSesion(){
   document.getElementById('login-screen').style.display = 'flex';
 }
 
-function mostrarApp(user){
+let miPerfil = null; // { rol, brigadista_id } o null si no tiene perfil asignado todavía
+
+async function mostrarApp(user){
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('usuario-email').textContent = user?.email ?? '';
+
+  const { data: perfil } = await sb.from('perfiles').select('rol, brigadista_id, nombre_completo').eq('id', user.id).maybeSingle();
+  miPerfil = perfil || null;
+
+  if (miPerfil && miPerfil.rol === 'brigadista'){
+    moduloActual = 'mi_diario';
+  }
   renderSidebar();
   cargarModulo(moduloActual);
 }
 
 function renderSidebar(){
   const nav = document.getElementById('sidebar');
-  nav.innerHTML = MODULOS.map(m => `
-    <div class="modulo ${m.id === moduloActual ? 'activo' : ''}" onclick="cargarModulo('${m.id}')">
-      ${m.nombre}
+  const lista = (miPerfil && miPerfil.rol === 'brigadista') ? MODULOS_BRIGADISTA : MODULOS;
+  nav.innerHTML = lista.map(m => `
+    <div class="modulo ${m.id === moduloActual ? 'activo' : ''}" onclick="cargarModulo('${m.id}')">      ${m.nombre}
       ${!m.activo ? `<span class="badge-proximamente">Sprint ${m.sprint}</span>` : ''}
     </div>
   `).join('');
@@ -308,7 +321,7 @@ async function cargarModulo(id){
   moduloActual = id;
   renderSidebar();
   const main = document.getElementById('main-content');
-  const modulo = MODULOS.find(m => m.id === id);
+  const modulo = MODULOS.find(m => m.id === id) || MODULOS_BRIGADISTA.find(m => m.id === id);
 
   if (!modulo.activo){
     main.innerHTML = `
@@ -317,6 +330,15 @@ async function cargarModulo(id){
         <strong>Módulo en construcción</strong>
         Este módulo llega en el Sprint ${modulo.sprint} del plan de trabajo.
       </div>`;
+    return;
+  }
+
+  if (id === 'mi_diario'){
+    main.innerHTML = `
+      <h2>Mi diario</h2>
+      <p class="section-sub">Solo tú, los profesionales asignados y el director pueden verlo</p>
+      <div id="contenido-mi-diario"><p class="section-sub">Cargando...</p></div>`;
+    await renderMiDiario();
     return;
   }
 
@@ -900,6 +922,57 @@ function procesarCsvGenerico(clave){
 }
 
 // =====================================================================
+// MI DIARIO (vista del propio brigadista)
+// =====================================================================
+async function renderMiDiario(){
+  const cont = document.getElementById('contenido-mi-diario');
+  if (!miPerfil || !miPerfil.brigadista_id){
+    cont.innerHTML = `<p class="section-sub">Tu usuario todavía no está vinculado a una ficha de brigadista. Pide a la coordinación que lo revise.</p>`;
+    return;
+  }
+  const { data: entradas, error } = await sb
+    .from('diario_brigadista')
+    .select('*')
+    .eq('brigadista_id', miPerfil.brigadista_id)
+    .order('fecha', { ascending:false });
+
+  if (error){ cont.innerHTML = `<p class="section-sub">No se ha podido cargar el diario: ${error.message}</p>`; return; }
+
+  cont.innerHTML = `
+    <div class="card">
+      <h3 class="titulo-card">Nueva entrada</h3>
+      <input id="md-fecha" type="date" value="${new Date().toISOString().slice(0,10)}" style="margin-bottom:10px;">
+      <textarea id="md-contenido" placeholder="¿Cómo ha ido el día?" class="textarea-comite" style="min-height:100px;"></textarea>
+      <button class="btn-primary btn-inline" onclick="crearEntradaDiario()">Guardar</button>
+      <div id="mi-diario-msg" class="section-sub"></div>
+    </div>
+    <div>
+      ${(!entradas || entradas.length === 0) ? '<p class="section-sub">Todavía no has escrito nada.</p>' : entradas.map(e => `
+        <div class="card">
+          <p class="section-sub" style="margin:0 0 6px;">${e.fecha}</p>
+          <p style="font-size:13px; white-space:pre-line;">${e.contenido}</p>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+async function crearEntradaDiario(){
+  const msg = document.getElementById('mi-diario-msg');
+  const contenido = document.getElementById('md-contenido').value.trim();
+  if (!contenido){ msg.textContent = 'Escribe algo antes de guardar.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+
+  const { error } = await sb.from('diario_brigadista').insert({
+    proyecto_id: proyecto.id,
+    brigadista_id: miPerfil.brigadista_id,
+    fecha: document.getElementById('md-fecha').value,
+    contenido,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  await renderMiDiario();
+}
+
+// =====================================================================
 // MÓDULO: RRHH
 // =====================================================================
 let cacheRrhh = {};
@@ -1008,6 +1081,8 @@ async function renderBrigadistas(){
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
         <button class="btn-secundario" onclick="abrirModalBrigadista('${b.id}')">Editar</button>
+        <button class="btn-secundario" onclick="abrirModalVerDiario('${b.id}', '${b.nombre.replace(/'/g,"\\'")}')">Ver diario</button>
+        <button class="btn-secundario" onclick="abrirModalAsignarProfesionales('${b.id}', '${b.nombre.replace(/'/g,"\\'")}')">Asignar profesionales</button>
         ${b.activo
           ? `<button class="btn-secundario" onclick="darBajaBrigadista('${b.id}')">Dar de baja</button>`
           : `<span class="badge-proximamente">Inactivo</span>`}
@@ -1079,6 +1154,59 @@ async function darBajaBrigadista(id){
   if (!ok) return;
   await sb.from('brigadistas').update({ activo:false, fecha_baja: new Date().toISOString().slice(0,10) }).eq('id', id);
   await renderBrigadistas();
+}
+
+async function abrirModalVerDiario(brigadistaId, nombre){
+  const { data: entradas, error } = await sb
+    .from('diario_brigadista')
+    .select('*')
+    .eq('brigadista_id', brigadistaId)
+    .order('fecha', { ascending:false });
+
+  const cuerpo = error
+    ? `<p class="section-sub">No se ha podido cargar (¿tienes acceso asignado a este brigadista?): ${error.message}</p>`
+    : (!entradas || entradas.length === 0)
+      ? '<p class="section-sub">Todavía no hay entradas.</p>'
+      : entradas.map(e => `
+        <div class="registro-seguimiento">
+          <p class="section-sub" style="margin:0 0 4px;">${e.fecha}</p>
+          <p style="font-size:13px; white-space:pre-line; margin:0;">${e.contenido}</p>
+        </div>
+      `).join('');
+
+  abrirModal(`Diario — ${nombre}`, cuerpo);
+}
+
+async function abrirModalAsignarProfesionales(brigadistaId, nombre){
+  const { data: perfiles } = await sb.from('perfiles').select('id, nombre_completo, rol').neq('rol', 'brigadista');
+  const { data: asignados } = await sb.from('asignaciones_brigadista').select('perfil_id').eq('brigadista_id', brigadistaId);
+  const idsAsignados = (asignados || []).map(a => a.perfil_id);
+
+  abrirModal(`Profesionales asignados — ${nombre}`, `
+    <div class="checks-asistentes">
+      ${(perfiles || []).length === 0 ? '<p class="section-sub">Todavía no hay perfiles de personal dados de alta (se crean vinculando un usuario de Supabase Auth a un rol en la tabla perfiles).</p>' : perfiles.map(p => `
+        <label class="check-asistente">
+          <input type="checkbox" value="${p.id}" class="chk-profesional-asignado" ${idsAsignados.includes(p.id) ? 'checked' : ''}>
+          ${p.nombre_completo || '(sin nombre)'} · ${p.rol}
+        </label>
+      `).join('')}
+    </div>
+    <button class="btn-primary btn-inline" onclick="guardarAsignaciones('${brigadistaId}')">Guardar</button>
+    <div id="asignaciones-msg" class="section-sub"></div>
+  `);
+}
+
+async function guardarAsignaciones(brigadistaId){
+  const msg = document.getElementById('asignaciones-msg');
+  const seleccionados = Array.from(document.querySelectorAll('.chk-profesional-asignado:checked')).map(c => c.value);
+
+  await sb.from('asignaciones_brigadista').delete().eq('brigadista_id', brigadistaId);
+  if (seleccionados.length > 0){
+    const filas = seleccionados.map(pid => ({ brigadista_id: brigadistaId, perfil_id: pid }));
+    const { error } = await sb.from('asignaciones_brigadista').insert(filas);
+    if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  }
+  cerrarModal();
 }
 
 // =====================================================================
