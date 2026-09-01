@@ -383,7 +383,15 @@ async function cargarModulo(id){
   }
 
   if (id === 'calendario'){
-    main.innerHTML = `<h2>Calendario</h2><p class="section-sub">Fechas previstas de actividades y acciones</p><div id="contenido-calendario"><p class="section-sub">Cargando...</p></div>`;
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>Calendario</h2>
+          <p class="section-sub">Fechas previstas de actividades, acciones y avisos del equipo</p>
+        </div>
+        ${puedeEditarCalendario() ? `<button class="btn-anadir" style="margin:0" onclick="abrirModalNuevoEvento()">+ Nuevo evento</button>` : ''}
+      </div>
+      <div id="contenido-calendario"><p class="section-sub">Cargando...</p></div>`;
     await renderCalendario();
     return;
   }
@@ -751,15 +759,17 @@ async function renderCalendario(){
   const cont = document.getElementById('contenido-calendario');
   const { data: actividades, error: errA } = await sb.from('actividades').select('id, codigo, nombre, fecha_inicio_prevista, fecha_fin_prevista, estado, observaciones');
   const { data: acciones, error: errB } = await sb.from('acciones').select('id, codigo, descripcion, fecha_inicio_prevista, fecha_fin_prevista, estado, observaciones');
+  const { data: eventosManuales, error: errC } = await sb.from('eventos_calendario').select('*');
 
   if (errA || errB){ cont.innerHTML = `<p class="section-sub">No se ha podido cargar el calendario: ${(errA||errB).message}</p>`; return; }
 
   const eventos = [
     ...(actividades||[]).filter(a=>a.fecha_inicio_prevista && a.fecha_fin_prevista).map(a => ({ tipo:'actividad', id:a.id, etiqueta:`${a.codigo} · ${a.nombre}`, inicio:a.fecha_inicio_prevista, fin:a.fecha_fin_prevista, estado:a.estado, observaciones:a.observaciones })),
     ...(acciones||[]).filter(a=>a.fecha_inicio_prevista && a.fecha_fin_prevista).map(a => ({ tipo:'accion', id:a.id, etiqueta:`${a.codigo} · ${a.descripcion}`, inicio:a.fecha_inicio_prevista, fin:a.fecha_fin_prevista, estado:a.estado, observaciones:a.observaciones })),
+    ...(errC ? [] : (eventosManuales||[]).map(e => ({ tipo:'evento', id:e.id, etiqueta:`📌 ${e.titulo}`, inicio:e.fecha_inicio, fin:e.fecha_fin, estado:'evento', observaciones:e.descripcion }))),
   ];
 
-  const colorEstado = { planificada:'var(--salvia)', en_curso:'var(--rosa)', completada:'var(--verde-bosque)', retrasada:'var(--rosa-dark)' };
+  const colorEstado = { planificada:'var(--salvia)', en_curso:'var(--rosa)', completada:'var(--verde-bosque)', retrasada:'var(--rosa-dark)', evento:'var(--verde-bosque-dark)' };
 
   const anio = mesCalendarioActual.getFullYear();
   const mes = mesCalendarioActual.getMonth();
@@ -797,6 +807,7 @@ async function renderCalendario(){
 }
 
 function abrirModalEventoCalendario(tipo, id){
+  if (tipo === 'evento'){ abrirModalVerEvento(id); return; }
   const tabla = tipo === 'actividad' ? 'actividades' : 'acciones';
   sb.from(tabla).select('*').eq('id', id).single().then(({ data: e }) => {
     if (!e) return;
@@ -841,6 +852,99 @@ async function guardarEventoCalendario(tipo, id){
     observaciones: document.getElementById('ce-observaciones').value.trim() || null,
   }).eq('id', id);
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderCalendario();
+}
+
+function abrirModalNuevoEvento(){
+  abrirModal('Nuevo evento del calendario', `
+    <input id="ev-titulo" placeholder="Título del evento" style="margin-bottom:10px;">
+    <div class="form-grid">
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de inicio</label>
+        <input id="ev-fecha-inicio" type="date" value="${new Date().toISOString().slice(0,10)}">
+      </div>
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de fin</label>
+        <input id="ev-fecha-fin" type="date" value="${new Date().toISOString().slice(0,10)}">
+      </div>
+    </div>
+    <textarea id="ev-descripcion" placeholder="Descripción (opcional)" class="textarea-comite"></textarea>
+    <label class="check-asistente" style="margin-top:6px;">
+      <input type="checkbox" id="ev-visible-brigadistas" checked> Visible también para los brigadistas
+    </label>
+    <button class="btn-primary btn-inline" style="margin-top:12px;" onclick="crearEventoCalendario()">Guardar</button>
+    <div id="nuevo-evento-msg" class="section-sub"></div>
+  `);
+}
+
+async function crearEventoCalendario(){
+  const msg = document.getElementById('nuevo-evento-msg');
+  const titulo = document.getElementById('ev-titulo').value.trim();
+  if (!titulo){ msg.textContent = 'El título es obligatorio.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+
+  const { error } = await sb.from('eventos_calendario').insert({
+    proyecto_id: proyecto.id,
+    titulo,
+    descripcion: document.getElementById('ev-descripcion').value.trim() || null,
+    fecha_inicio: document.getElementById('ev-fecha-inicio').value,
+    fecha_fin: document.getElementById('ev-fecha-fin').value,
+    visible_brigadistas: document.getElementById('ev-visible-brigadistas').checked,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderCalendario();
+}
+
+function abrirModalVerEvento(id){
+  sb.from('eventos_calendario').select('*').eq('id', id).single().then(({ data: e }) => {
+    if (!e) return;
+    const editable = puedeEditarCalendario();
+    abrirModal(`📌 ${e.titulo}`, editable ? `
+      <div class="form-grid">
+        <div>
+          <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de inicio</label>
+          <input id="ev-fecha-inicio-ed" type="date" value="${e.fecha_inicio}">
+        </div>
+        <div>
+          <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de fin</label>
+          <input id="ev-fecha-fin-ed" type="date" value="${e.fecha_fin}">
+        </div>
+      </div>
+      <textarea id="ev-descripcion-ed" class="textarea-comite">${e.descripcion ?? ''}</textarea>
+      <label class="check-asistente" style="margin-top:6px;">
+        <input type="checkbox" id="ev-visible-brigadistas-ed" ${e.visible_brigadistas ? 'checked' : ''}> Visible también para los brigadistas
+      </label>
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button class="btn-primary btn-inline" onclick="guardarEventoManual('${id}')">Guardar</button>
+        <button class="btn-secundario" onclick="eliminarEventoManual('${id}')">Eliminar</button>
+      </div>
+      <div id="evento-manual-msg" class="section-sub"></div>
+    ` : `
+      <p class="section-sub" style="margin:0 0 8px;">${e.fecha_inicio}${e.fecha_inicio !== e.fecha_fin ? ' → ' + e.fecha_fin : ''}</p>
+      <p style="font-size:13px; white-space:pre-line;">${e.descripcion || 'Sin descripción.'}</p>
+    `);
+  });
+}
+
+async function guardarEventoManual(id){
+  const msg = document.getElementById('evento-manual-msg');
+  const { error } = await sb.from('eventos_calendario').update({
+    fecha_inicio: document.getElementById('ev-fecha-inicio-ed').value,
+    fecha_fin: document.getElementById('ev-fecha-fin-ed').value,
+    descripcion: document.getElementById('ev-descripcion-ed').value.trim() || null,
+    visible_brigadistas: document.getElementById('ev-visible-brigadistas-ed').checked,
+  }).eq('id', id);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderCalendario();
+}
+
+async function eliminarEventoManual(id){
+  const ok = confirm('¿Eliminar este evento del calendario?');
+  if (!ok) return;
+  await sb.from('eventos_calendario').delete().eq('id', id);
   cerrarModal();
   await renderCalendario();
 }
