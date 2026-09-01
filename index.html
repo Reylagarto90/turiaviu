@@ -195,6 +195,26 @@
   .alerta-item{ display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px dashed var(--borde); font-size:13px; }
   .alerta-item:last-child{ border-bottom:none; }
   .alerta-badge{ font-size:11px; padding:2px 8px; border-radius:6px; color:#fff; }
+
+  /* ---------- CALENDARIO ---------- */
+  .cal-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; }
+  .cal-grid-cabecera{ margin-bottom:6px; }
+  .cal-dia-nombre{ text-align:center; font-size:11px; color:var(--texto-suave); font-weight:600; }
+  .cal-celda{
+    background:var(--blanco); border:1px solid var(--borde); border-radius:8px; min-height:88px;
+    padding:6px; font-size:11px; overflow:hidden;
+  }
+  .cal-vacia{ background:none; border:none; }
+  .cal-hoy{ border-color:var(--verde-bosque); box-shadow:inset 0 0 0 1px var(--verde-bosque); }
+  .cal-num{ font-size:12px; font-weight:600; color:var(--texto-suave); margin-bottom:4px; }
+  .cal-hoy .cal-num{ color:var(--verde-bosque-dark); }
+  .cal-evento{
+    font-size:10.5px; padding:2px 4px; border-radius:3px; margin-bottom:3px; cursor:pointer;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .cal-mas{ font-size:10px; color:var(--texto-suave); }
+  @media (max-width:700px){ .cal-celda{ min-height:60px; font-size:10px; } }
 </style>
 </head>
 <body>
@@ -267,6 +287,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // =====================================================================
 const MODULOS = [
   { id:'inicio',        nombre:'Panel de inicio',          sprint:1, activo:true  },
+  { id:'calendario',    nombre:'Calendario',               sprint:1, activo:true  },
   { id:'nucleo',        nombre:'Objetivos e indicadores', sprint:1, activo:true  },
   { id:'cronograma',    nombre:'Cronograma',               sprint:1, activo:true  },
   { id:'rrhh',          nombre:'RRHH',                     sprint:2, activo:true  },
@@ -282,6 +303,7 @@ const MODULOS = [
 
 const MODULOS_BRIGADISTA = [
   { id:'mi_diario', nombre:'Mi diario', activo:true },
+  { id:'calendario', nombre:'Calendario', activo:true },
 ];
 
 let moduloActual = 'inicio';
@@ -357,6 +379,12 @@ async function cargarModulo(id){
   if (id === 'inicio'){
     main.innerHTML = `<h2>Panel de inicio</h2><p class="section-sub">Vista general del proyecto</p><div id="contenido-inicio"><p class="section-sub">Cargando...</p></div>`;
     await renderInicio();
+    return;
+  }
+
+  if (id === 'calendario'){
+    main.innerHTML = `<h2>Calendario</h2><p class="section-sub">Fechas previstas de actividades y acciones</p><div id="contenido-calendario"><p class="section-sub">Cargando...</p></div>`;
+    await renderCalendario();
     return;
   }
 
@@ -703,6 +731,118 @@ async function renderInicio(){
         `).join('')}
       </div>
     </div>`;
+}
+
+// =====================================================================
+// CALENDARIO MENSUAL
+// =====================================================================
+let mesCalendarioActual = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+function puedeEditarCalendario(){
+  return miPerfil && ['tecnico','coordinadora','director'].includes(miPerfil.rol);
+}
+
+async function cambiarMesCalendario(delta){
+  mesCalendarioActual.setMonth(mesCalendarioActual.getMonth() + delta);
+  await renderCalendario();
+}
+
+async function renderCalendario(){
+  const cont = document.getElementById('contenido-calendario');
+  const { data: actividades, error: errA } = await sb.from('actividades').select('id, codigo, nombre, fecha_inicio_prevista, fecha_fin_prevista, estado, observaciones');
+  const { data: acciones, error: errB } = await sb.from('acciones').select('id, codigo, descripcion, fecha_inicio_prevista, fecha_fin_prevista, estado, observaciones');
+
+  if (errA || errB){ cont.innerHTML = `<p class="section-sub">No se ha podido cargar el calendario: ${(errA||errB).message}</p>`; return; }
+
+  const eventos = [
+    ...(actividades||[]).filter(a=>a.fecha_inicio_prevista && a.fecha_fin_prevista).map(a => ({ tipo:'actividad', id:a.id, etiqueta:`${a.codigo} · ${a.nombre}`, inicio:a.fecha_inicio_prevista, fin:a.fecha_fin_prevista, estado:a.estado, observaciones:a.observaciones })),
+    ...(acciones||[]).filter(a=>a.fecha_inicio_prevista && a.fecha_fin_prevista).map(a => ({ tipo:'accion', id:a.id, etiqueta:`${a.codigo} · ${a.descripcion}`, inicio:a.fecha_inicio_prevista, fin:a.fecha_fin_prevista, estado:a.estado, observaciones:a.observaciones })),
+  ];
+
+  const colorEstado = { planificada:'var(--salvia)', en_curso:'var(--rosa)', completada:'var(--verde-bosque)', retrasada:'var(--rosa-dark)' };
+
+  const anio = mesCalendarioActual.getFullYear();
+  const mes = mesCalendarioActual.getMonth();
+  const nombresMes = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const primerDiaSemana = (new Date(anio, mes, 1).getDay() + 6) % 7; // lunes=0
+  const diasEnMes = new Date(anio, mes+1, 0).getDate();
+  const hoyStr = new Date().toISOString().slice(0,10);
+
+  let celdas = '';
+  for (let i=0; i<primerDiaSemana; i++) celdas += `<div class="cal-celda cal-vacia"></div>`;
+  for (let d=1; d<=diasEnMes; d++){
+    const fechaStr = `${anio}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const eventosDia = eventos.filter(e => e.inicio <= fechaStr && e.fin >= fechaStr);
+    const esHoy = fechaStr === hoyStr;
+    celdas += `
+      <div class="cal-celda ${esHoy ? 'cal-hoy' : ''}">
+        <div class="cal-num">${d}</div>
+        ${eventosDia.slice(0,3).map(e => `
+          <div class="cal-evento" style="background:${colorEstado[e.estado]}22; border-left:3px solid ${colorEstado[e.estado]};" onclick="abrirModalEventoCalendario('${e.tipo}','${e.id}')">${e.etiqueta.slice(0,26)}</div>
+        `).join('')}
+        ${eventosDia.length > 3 ? `<div class="cal-mas">+${eventosDia.length - 3} más</div>` : ''}
+      </div>`;
+  }
+
+  cont.innerHTML = `
+    <div class="cal-header">
+      <button class="btn-secundario" onclick="cambiarMesCalendario(-1)">‹ Anterior</button>
+      <strong style="color:var(--verde-bosque-dark);">${nombresMes[mes]} ${anio}</strong>
+      <button class="btn-secundario" onclick="cambiarMesCalendario(1)">Siguiente ›</button>
+    </div>
+    <div class="cal-grid cal-grid-cabecera">
+      ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d => `<div class="cal-dia-nombre">${d}</div>`).join('')}
+    </div>
+    <div class="cal-grid">${celdas}</div>`;
+}
+
+function abrirModalEventoCalendario(tipo, id){
+  const tabla = tipo === 'actividad' ? 'actividades' : 'acciones';
+  sb.from(tabla).select('*').eq('id', id).single().then(({ data: e }) => {
+    if (!e) return;
+    const etiqueta = tipo === 'actividad' ? `${e.codigo} · ${e.nombre}` : `${e.codigo} · ${e.descripcion}`;
+    const editable = puedeEditarCalendario();
+
+    abrirModal(etiqueta, editable ? `
+      <div class="form-grid">
+        <div>
+          <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de inicio</label>
+          <input id="ce-fecha-inicio" type="date" value="${e.fecha_inicio_prevista ?? ''}">
+        </div>
+        <div>
+          <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de fin</label>
+          <input id="ce-fecha-fin" type="date" value="${e.fecha_fin_prevista ?? ''}">
+        </div>
+        <select id="ce-estado">
+          <option value="planificada" ${e.estado==='planificada'?'selected':''}>Planificada</option>
+          <option value="en_curso" ${e.estado==='en_curso'?'selected':''}>En curso</option>
+          <option value="completada" ${e.estado==='completada'?'selected':''}>Completada</option>
+          <option value="retrasada" ${e.estado==='retrasada'?'selected':''}>Retrasada</option>
+        </select>
+      </div>
+      <label class="section-sub" style="display:block; margin:10px 0 4px;">Observaciones</label>
+      <textarea id="ce-observaciones" class="textarea-comite">${e.observaciones ?? ''}</textarea>
+      <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarEventoCalendario('${tipo}','${id}')">Guardar</button>
+      <div id="evento-cal-msg" class="section-sub"></div>
+    ` : `
+      <p class="section-sub" style="margin:0 0 8px;">${e.fecha_inicio_prevista} → ${e.fecha_fin_prevista} · ${e.estado}</p>
+      <p style="font-size:13px; white-space:pre-line;">${e.observaciones || 'Sin observaciones.'}</p>
+    `);
+  });
+}
+
+async function guardarEventoCalendario(tipo, id){
+  const msg = document.getElementById('evento-cal-msg');
+  const tabla = tipo === 'actividad' ? 'actividades' : 'acciones';
+  const { error } = await sb.from(tabla).update({
+    fecha_inicio_prevista: document.getElementById('ce-fecha-inicio').value || null,
+    fecha_fin_prevista: document.getElementById('ce-fecha-fin').value || null,
+    estado: document.getElementById('ce-estado').value,
+    observaciones: document.getElementById('ce-observaciones').value.trim() || null,
+  }).eq('id', id);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderCalendario();
 }
 
 async function cargarObjetivosEIndicadores(){
