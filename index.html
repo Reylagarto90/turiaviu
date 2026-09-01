@@ -1943,6 +1943,7 @@ async function renderComunicacion(){
       <p class="section-sub" style="margin:6px 0 0;">${e.fecha}${e.medio ? ` · ${e.medio}` : ''}${e.personas_alcanzadas ? ` · ${e.personas_alcanzadas} personas` : ''}</p>
       <p style="font-size:13px; margin:6px 0 0;"><strong>${e.titulo}</strong></p>
       ${e.enlace_url ? `<p class="section-sub" style="margin:4px 0 0;"><a href="${e.enlace_url}" target="_blank">Ver enlace</a></p>` : ''}
+      ${e.archivo_url ? `<p class="section-sub" style="margin:4px 0 0;"><a href="${e.archivo_url}" target="_blank">Ver archivo adjunto</a></p>` : ''}
       ${e.notas ? `<p style="font-size:13px; margin:6px 0 0;">${e.notas}</p>` : ''}
     </div>
   `).join('');
@@ -1964,6 +1965,10 @@ function abrirModalComunicacion(){
     </div>
     <input id="cm-titulo" placeholder="Título / descripción breve" style="margin-bottom:10px;">
     <input id="cm-enlace" placeholder="Enlace (opcional)" style="margin-bottom:10px;">
+    <div style="margin-bottom:10px;">
+      <label class="section-sub" style="display:block; margin-bottom:4px;">Adjuntar archivo (PDF o imagen, ej. edición impresa)</label>
+      <input type="file" id="cm-archivo" accept=".pdf,image/*">
+    </div>
     <div id="cm-campo-personas" style="display:none; margin-bottom:10px;">
       <label class="section-sub" style="display:block; margin-bottom:4px;">Personas alcanzadas (suma al indicador 4.1)</label>
       <input id="cm-personas" type="number" placeholder="Nº de personas">
@@ -1995,12 +2000,24 @@ async function crearComunicacion(){
   const fecha = document.getElementById('cm-fecha').value;
   const personas = document.getElementById('cm-personas').value || null;
 
+  let archivoUrl = null;
+  const archivo = document.getElementById('cm-archivo').files[0];
+  if (archivo){
+    msg.textContent = 'Subiendo archivo...';
+    const rutaArchivo = `${Date.now()}_${archivo.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+    const { error: errSubida } = await sb.storage.from('comunicacion').upload(rutaArchivo, archivo);
+    if (errSubida){ msg.textContent = 'Error al subir el archivo: ' + errSubida.message; return; }
+    const { data: urlData } = sb.storage.from('comunicacion').getPublicUrl(rutaArchivo);
+    archivoUrl = urlData.publicUrl;
+  }
+
   const { error } = await sb.from('actividades_comunicacion').insert({
     proyecto_id: proyecto.id,
     tipo, fecha, titulo,
     enlace_url: document.getElementById('cm-enlace').value.trim() || null,
     personas_alcanzadas: personas,
     medio: document.getElementById('cm-medio').value.trim() || null,
+    archivo_url: archivoUrl,
     notas: document.getElementById('cm-notas').value.trim() || null,
   });
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
