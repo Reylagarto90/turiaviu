@@ -1928,7 +1928,8 @@ async function crearEntradaBitacora(){
 // =====================================================================
 const ETIQUETAS_TIPO_COMUNICACION = {
   publicacion_red: 'Publicación en redes', entrada_blog: 'Entrada de blog', video: 'Vídeo documental',
-  ecoaula: 'Ecoaula', voluntariado: 'Voluntariado', sensibilizacion_otra: 'Otra sensibilización'
+  ecoaula: 'Ecoaula', voluntariado: 'Voluntariado', sensibilizacion_otra: 'Otra sensibilización',
+  nota_prensa: 'Nota de prensa (comunicación externa)'
 };
 
 async function renderComunicacion(){
@@ -1939,7 +1940,7 @@ async function renderComunicacion(){
   cont.innerHTML = (!entradas || entradas.length === 0) ? '<p class="section-sub">Todavía no hay actividades de comunicación registradas.</p>' : entradas.map(e => `
     <div class="card">
       <span class="oe-codigo">${ETIQUETAS_TIPO_COMUNICACION[e.tipo] || e.tipo}</span>
-      <p class="section-sub" style="margin:6px 0 0;">${e.fecha}${e.personas_alcanzadas ? ` · ${e.personas_alcanzadas} personas` : ''}</p>
+      <p class="section-sub" style="margin:6px 0 0;">${e.fecha}${e.medio ? ` · ${e.medio}` : ''}${e.personas_alcanzadas ? ` · ${e.personas_alcanzadas} personas` : ''}</p>
       <p style="font-size:13px; margin:6px 0 0;"><strong>${e.titulo}</strong></p>
       ${e.enlace_url ? `<p class="section-sub" style="margin:4px 0 0;"><a href="${e.enlace_url}" target="_blank">Ver enlace</a></p>` : ''}
       ${e.notas ? `<p style="font-size:13px; margin:6px 0 0;">${e.notas}</p>` : ''}
@@ -1957,6 +1958,7 @@ function abrirModalComunicacion(){
         <option value="ecoaula">Ecoaula</option>
         <option value="voluntariado">Jornada de voluntariado</option>
         <option value="sensibilizacion_otra">Otra actividad de sensibilización</option>
+        <option value="nota_prensa">Nota de prensa (comunicación externa)</option>
       </select>
       <input id="cm-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
     </div>
@@ -1965,6 +1967,10 @@ function abrirModalComunicacion(){
     <div id="cm-campo-personas" style="display:none; margin-bottom:10px;">
       <label class="section-sub" style="display:block; margin-bottom:4px;">Personas alcanzadas (suma al indicador 4.1)</label>
       <input id="cm-personas" type="number" placeholder="Nº de personas">
+    </div>
+    <div id="cm-campo-medio" style="display:none; margin-bottom:10px;">
+      <label class="section-sub" style="display:block; margin-bottom:4px;">Medio de publicación</label>
+      <input id="cm-medio" placeholder="Ej. Valencia Plaza, Paterna Ahora...">
     </div>
     <textarea id="cm-notas" placeholder="Notas (opcional)" class="textarea-comite"></textarea>
     <button class="btn-primary btn-inline" onclick="crearComunicacion()">Guardar</button>
@@ -1977,6 +1983,7 @@ function cambiarCamposComunicacion(){
   const tipo = document.getElementById('cm-tipo').value;
   const mostrar = ['ecoaula','voluntariado','sensibilizacion_otra'].includes(tipo);
   document.getElementById('cm-campo-personas').style.display = mostrar ? 'block' : 'none';
+  document.getElementById('cm-campo-medio').style.display = tipo === 'nota_prensa' ? 'block' : 'none';
 }
 
 async function crearComunicacion(){
@@ -1993,6 +2000,7 @@ async function crearComunicacion(){
     tipo, fecha, titulo,
     enlace_url: document.getElementById('cm-enlace').value.trim() || null,
     personas_alcanzadas: personas,
+    medio: document.getElementById('cm-medio').value.trim() || null,
     notas: document.getElementById('cm-notas').value.trim() || null,
   });
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
