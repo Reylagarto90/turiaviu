@@ -1276,14 +1276,15 @@ const CONFIG_CSV = {
   rrhh: {
     titulo: 'Actualizar RRHH desde CSV',
     tabla: 'rrhh_personal',
-    columnas: ['nombre','perfil','entidad','tipo_contractual','pct_dedicacion','meses_dedicacion','coste_mensual_bruto','email','telefono','fecha_alta'],
-    ejemplo: 'María Piqueras,Trabajadora social,AFEMPES,PT,50,12,1800,maria@afempes.es,600000000,2026-06-01',
+    columnas: ['nombre','perfil','entidad','tipo_contractual','sexo','pct_dedicacion','meses_dedicacion','coste_mensual_bruto','email','telefono','fecha_alta'],
+    ejemplo: 'María Piqueras,Trabajadora social,AFEMPES,PT,mujer,50,12,1800,maria@afempes.es,600000000,2026-06-01',
     refrescar: () => renderRrhh(),
     mapaFila: (fila) => ({
       nombre: (fila.nombre || '').trim(),
       perfil: fila.perfil?.trim() || null,
       entidad: fila.entidad?.trim() || null,
       tipo_contractual: fila.tipo_contractual?.trim() || null,
+      sexo: fila.sexo?.trim() || null,
       pct_dedicacion: fila.pct_dedicacion ? parseFloat(fila.pct_dedicacion) : null,
       meses_dedicacion: fila.meses_dedicacion ? parseFloat(fila.meses_dedicacion) : null,
       coste_mensual_bruto: fila.coste_mensual_bruto ? parseFloat(fila.coste_mensual_bruto) : null,
@@ -1443,7 +1444,7 @@ async function renderRrhh(){
   cont.innerHTML = (!personas || personas.length === 0) ? '<p class="section-sub">Todavía no hay personal registrado.</p>' : personas.map(p => `
     <div class="card fila-miembro">
       <div>
-        <strong>${p.nombre}</strong>${p.tipo_contractual ? ` <span class="badge-rol">${p.tipo_contractual}</span>` : ''}
+        <strong>${p.nombre}</strong>${p.tipo_contractual ? ` <span class="badge-rol">${p.tipo_contractual}</span>` : ''}${p.sexo ? ` <span class="badge-rol">${p.sexo}</span>` : ''}
         <p class="section-sub" style="margin:2px 0 0">${p.perfil ?? ''}${p.entidad ? ' · ' + p.entidad : ''}</p>
         <p class="section-sub" style="margin:2px 0 0">${p.pct_dedicacion ? `${p.pct_dedicacion}% dedicación` : ''}${p.meses_dedicacion ? ` · ${p.meses_dedicacion} meses` : ''}</p>
         <p class="section-sub" style="margin:2px 0 0">${p.email ?? 'Sin email'}${p.telefono ? ' · ' + p.telefono : ''}</p>
@@ -1466,6 +1467,12 @@ function abrirModalRrhh(id){
       <input id="rr-perfil" placeholder="Perfil / cargo" value="${p?.perfil ?? ''}">
       <input id="rr-entidad" placeholder="Entidad" value="${p?.entidad ?? ''}">
       <input id="rr-tipo" placeholder="Tipo contractual (PP, PT, TRADE...)" value="${p?.tipo_contractual ?? ''}">
+      <select id="rr-sexo">
+        <option value="" ${!p?.sexo?'selected':''}>Sexo: sin especificar</option>
+        <option value="mujer" ${p?.sexo==='mujer'?'selected':''}>Mujer</option>
+        <option value="hombre" ${p?.sexo==='hombre'?'selected':''}>Hombre</option>
+        <option value="otro" ${p?.sexo==='otro'?'selected':''}>Otro</option>
+      </select>
       <input id="rr-dedicacion" type="number" step="0.1" placeholder="% dedicación" value="${p?.pct_dedicacion ?? ''}">
       <input id="rr-meses" type="number" step="0.1" placeholder="Meses de dedicación" value="${p?.meses_dedicacion ?? ''}">
       <input id="rr-coste" type="number" step="0.01" placeholder="Coste mensual bruto (€, jornada completa)" value="${p?.coste_mensual_bruto ?? ''}">
@@ -1488,6 +1495,7 @@ async function guardarRrhh(id){
     perfil: document.getElementById('rr-perfil').value.trim() || null,
     entidad: document.getElementById('rr-entidad').value.trim() || null,
     tipo_contractual: document.getElementById('rr-tipo').value.trim() || null,
+    sexo: document.getElementById('rr-sexo').value || null,
     pct_dedicacion: document.getElementById('rr-dedicacion').value || null,
     meses_dedicacion: document.getElementById('rr-meses').value || null,
     coste_mensual_bruto: document.getElementById('rr-coste').value || null,
@@ -2401,7 +2409,7 @@ async function obtenerDatosInformeFB(){
   const [
     { data: brigadistas }, { data: comunicacion }, { data: amenazas },
     { data: empleos }, { data: especies }, { data: superficies },
-    { data: actividadesForm },
+    { data: actividadesForm }, { data: rrhh },
   ] = await Promise.all([
     sb.from('brigadistas').select('nombre, sexo, situacion_laboral_alta, fecha_nacimiento, horas_formacion_tecnica, horas_formacion_transversal, estado_insercion'),
     sb.from('actividades_comunicacion').select('tipo, titulo, fecha'),
@@ -2410,8 +2418,9 @@ async function obtenerDatosInformeFB(){
     sb.from('especies_conservacion').select('*'),
     sb.from('superficies_actuacion').select('*'),
     sb.from('actividades').select('codigo, nombre').in('codigo', ['A3','A4']),
+    sb.from('rrhh_personal').select('nombre, sexo').eq('activo', true),
   ]);
-  return { brigadistas: brigadistas||[], comunicacion: comunicacion||[], amenazas: amenazas||[], empleos: empleos||[], especies: especies||[], superficies: superficies||[], actividadesForm: actividadesForm||[] };
+  return { brigadistas: brigadistas||[], comunicacion: comunicacion||[], amenazas: amenazas||[], empleos: empleos||[], especies: especies||[], superficies: superficies||[], actividadesForm: actividadesForm||[], rrhh: rrhh||[] };
 }
 
 async function renderInformeFB(cont){
@@ -2442,6 +2451,7 @@ async function renderInformeFB(cont){
       <p style="font-size:13px;">Directos, corto plazo: ${empleosPorTipo('directo','corto')} · Directos, largo plazo: ${empleosPorTipo('directo','largo')}</p>
       <p style="font-size:13px;">Indirectos, corto plazo: ${empleosPorTipo('indirecto','corto')} · Indirectos, largo plazo: ${empleosPorTipo('indirecto','largo')}</p>
       <p class="section-sub">${porSexo(d.empleos)}</p>
+      <p style="font-size:13px; margin-top:6px;">Personal del propio proyecto (RRHH), como referencia: ${d.rrhh.length} personas — ${porSexo(d.rrhh)}</p>
     </div>
     <div class="card">
       <h3 class="titulo-card">d) y m) Actividades de capacitación, empleo, comunicación y educación</h3>
@@ -2520,7 +2530,8 @@ function descargarInformeFB(){
     seccion('c) Empleos generados', [
       `Directos corto plazo: ${empleosPorTipo('directo','corto')} · Directos largo plazo: ${empleosPorTipo('directo','largo')}`,
       `Indirectos corto plazo: ${empleosPorTipo('indirecto','corto')} · Indirectos largo plazo: ${empleosPorTipo('indirecto','largo')}`,
-      porSexo(d.empleos)
+      porSexo(d.empleos),
+      `Personal del propio proyecto (RRHH), como referencia: ${d.rrhh.length} personas — ${porSexo(d.rrhh)}`
     ]);
     seccion('d) y m) Actividades de capacitación/empleo/comunicación', Object.entries(tiposComunicacion).map(([t,n]) => `${ETIQUETAS_TIPO_COMUNICACION[t]||t}: ${n}`));
     seccion('e) Actividades de comunicación/sensibilización/educación', d.comunicacion.map(c => `${c.fecha} — ${ETIQUETAS_TIPO_COMUNICACION[c.tipo]||c.tipo}: ${c.titulo}`));
