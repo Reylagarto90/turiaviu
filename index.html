@@ -299,6 +299,7 @@ const MODULOS = [
   { id:'comunicacion',  nombre:'Comunicación',              sprint:4, activo:true  },
   { id:'presupuesto',   nombre:'Presupuesto',              sprint:4, activo:true  },
   { id:'comite',        nombre:'Comité e informes',        sprint:4, activo:true  },
+  { id:'indicadores_fb', nombre:'Indicadores FB',           sprint:4, activo:true  },
 ];
 
 const MODULOS_BRIGADISTA = [
@@ -420,6 +421,26 @@ async function cargarModulo(id){
       </div>
       <div id="contenido-comite"><p class="section-sub">Cargando...</p></div>`;
     await cambiarTabComite('miembros');
+  }
+
+  if (id === 'indicadores_fb'){
+    main.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
+        <div>
+          <h2>Indicadores FB</h2>
+          <p class="section-sub">Indicadores del artículo 21 de la convocatoria — Fundación Biodiversidad</p>
+        </div>
+        <button class="btn-anadir" style="margin:0" onclick="descargarInformeFB()">Descargar informe PDF</button>
+      </div>
+      <div class="tabs-comite">
+        <button class="tab-comite activa" data-tab-fb="informe" onclick="cambiarTabFB('informe')">Informe</button>
+        <button class="tab-comite" data-tab-fb="amenazas" onclick="cambiarTabFB('amenazas')">Amenazas</button>
+        <button class="tab-comite" data-tab-fb="empleos" onclick="cambiarTabFB('empleos')">Empleos generados</button>
+        <button class="tab-comite" data-tab-fb="especies" onclick="cambiarTabFB('especies')">Especies</button>
+        <button class="tab-comite" data-tab-fb="superficies" onclick="cambiarTabFB('superficies')">Superficies</button>
+      </div>
+      <div id="contenido-fb"><p class="section-sub">Cargando...</p></div>`;
+    await cambiarTabFB('informe');
   }
 
   if (id === 'cronograma'){
@@ -1274,13 +1295,15 @@ const CONFIG_CSV = {
   brigadistas: {
     titulo: 'Actualizar Brigadistas desde CSV',
     tabla: 'brigadistas',
-    columnas: ['nombre','dni_nie','fecha_nacimiento','telefono','email','fecha_alta','horas_formacion_tecnica','horas_formacion_transversal','sesiones_tutorizacion_psicosocial','estado_portfolio','estado_insercion','tipo_salida','fecha_insercion'],
-    ejemplo: 'Nombre Apellido,12345678A,1995-03-10,600000000,nombre@ejemplo.com,2026-06-01,20,8,2,en_progreso,no_insertado,,',
+    columnas: ['nombre','dni_nie','fecha_nacimiento','sexo','situacion_laboral_alta','telefono','email','fecha_alta','horas_formacion_tecnica','horas_formacion_transversal','sesiones_tutorizacion_psicosocial','estado_portfolio','estado_insercion','tipo_salida','fecha_insercion'],
+    ejemplo: 'Nombre Apellido,12345678A,1995-03-10,mujer,desempleada,600000000,nombre@ejemplo.com,2026-06-01,20,8,2,en_progreso,no_insertado,,',
     refrescar: () => renderBrigadistas(),
     mapaFila: (fila) => ({
       nombre: (fila.nombre || '').trim(),
       dni_nie: fila.dni_nie?.trim() || null,
       fecha_nacimiento: fila.fecha_nacimiento?.trim() || null,
+      sexo: fila.sexo?.trim() || null,
+      situacion_laboral_alta: fila.situacion_laboral_alta?.trim() || null,
       telefono: fila.telefono?.trim() || null,
       email: fila.email?.trim() || null,
       fecha_alta: fila.fecha_alta?.trim() || null,
@@ -1572,6 +1595,16 @@ function abrirModalBrigadista(id){
       ${campoIntake('Teléfono', 'br-telefono', 'text', b?.telefono)}
       ${campoIntake('Correo electrónico', 'br-email', 'email', b?.email)}
       ${campoIntake('Fecha de alta', 'br-fecha-alta', 'date', b?.fecha_alta ?? new Date().toISOString().slice(0,10))}
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Sexo (para el reporte a la Fundación Biodiversidad)</label>
+        <select id="br-sexo">
+          <option value="" ${!b?.sexo?'selected':''}>Sin especificar</option>
+          <option value="mujer" ${b?.sexo==='mujer'?'selected':''}>Mujer</option>
+          <option value="hombre" ${b?.sexo==='hombre'?'selected':''}>Hombre</option>
+          <option value="otro" ${b?.sexo==='otro'?'selected':''}>Otro</option>
+        </select>
+      </div>
+      ${campoIntake('Situación laboral al ingresar', 'br-situacion-laboral', 'text', b?.situacion_laboral_alta)}
     </div>
     ${bloqueSeguimiento}
     <button class="btn-primary btn-inline" style="margin-top:12px;" onclick="guardarBrigadista(${id ? `'${id}'` : 'null'})">Guardar</button>
@@ -1591,6 +1624,8 @@ async function guardarBrigadista(id){
     telefono: document.getElementById('br-telefono').value.trim() || null,
     email: document.getElementById('br-email').value.trim() || null,
     fecha_alta: document.getElementById('br-fecha-alta').value,
+    sexo: document.getElementById('br-sexo').value || null,
+    situacion_laboral_alta: document.getElementById('br-situacion-laboral').value.trim() || null,
   };
 
   // Los campos de seguimiento solo existen en el formulario cuando se edita
@@ -1932,14 +1967,25 @@ const ETIQUETAS_TIPO_COMUNICACION = {
   nota_prensa: 'Nota de prensa (comunicación externa)'
 };
 
+let cacheComunicacion = {};
+
 async function renderComunicacion(){
   const cont = document.getElementById('contenido-comunicacion');
   const { data: entradas, error } = await sb.from('actividades_comunicacion').select('*').order('fecha', { ascending:false });
   if (error){ cont.innerHTML = `<p class="section-sub">No se han podido cargar las entradas: ${error.message}</p>`; return; }
 
+  cacheComunicacion = {};
+  (entradas || []).forEach(e => cacheComunicacion[e.id] = e);
+
   cont.innerHTML = (!entradas || entradas.length === 0) ? '<p class="section-sub">Todavía no hay actividades de comunicación registradas.</p>' : entradas.map(e => `
     <div class="card">
-      <span class="oe-codigo">${ETIQUETAS_TIPO_COMUNICACION[e.tipo] || e.tipo}</span>
+      <div class="fila-miembro">
+        <span class="oe-codigo">${ETIQUETAS_TIPO_COMUNICACION[e.tipo] || e.tipo}</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-secundario btn-mini" onclick="abrirModalComunicacion('${e.id}')">Editar</button>
+          <button class="btn-secundario btn-mini" onclick="eliminarComunicacion('${e.id}')">Eliminar</button>
+        </div>
+      </div>
       <p class="section-sub" style="margin:6px 0 0;">${e.fecha}${e.medio ? ` · ${e.medio}` : ''}${e.personas_alcanzadas ? ` · ${e.personas_alcanzadas} personas` : ''}</p>
       <p style="font-size:13px; margin:6px 0 0;"><strong>${e.titulo}</strong></p>
       ${e.enlace_url ? `<p class="section-sub" style="margin:4px 0 0;"><a href="${e.enlace_url}" target="_blank">Ver enlace</a></p>` : ''}
@@ -1949,36 +1995,66 @@ async function renderComunicacion(){
   `).join('');
 }
 
-function abrirModalComunicacion(){
-  abrirModal('Nueva actividad de comunicación', `
+async function eliminarComunicacion(id){
+  const ok = confirm('¿Eliminar esta entrada de comunicación? Se restará automáticamente del indicador correspondiente.');
+  if (!ok) return;
+
+  const e = cacheComunicacion[id];
+  if (e){
+    const decrementos = {
+      publicacion_red: [['Indicador 4.4a', -1]],
+      entrada_blog: [['Indicador 4.4b', -1]],
+      video: [['Indicador 4.4c', -1]],
+      ecoaula: [['Indicador 4.2', -1]],
+      voluntariado: [['Indicador 4.3', -1]],
+      sensibilizacion_otra: [],
+      nota_prensa: [],
+    }[e.tipo] || [];
+
+    if (e.personas_alcanzadas && ['ecoaula','voluntariado','sensibilizacion_otra'].includes(e.tipo)){
+      decrementos.push(['Indicador 4.1', -parseInt(e.personas_alcanzadas)]);
+    }
+    for (const [codigo, delta] of decrementos){
+      await sb.rpc('incrementar_indicador', { p_codigo: codigo, p_delta: delta });
+    }
+  }
+
+  await sb.from('actividades_comunicacion').delete().eq('id', id);
+  await renderComunicacion();
+}
+
+function abrirModalComunicacion(id){
+  const e = id ? cacheComunicacion[id] : null;
+  abrirModal(e ? 'Editar actividad de comunicación' : 'Nueva actividad de comunicación', `
     <div class="form-grid">
       <select id="cm-tipo" onchange="cambiarCamposComunicacion()">
-        <option value="publicacion_red">Publicación en redes</option>
-        <option value="entrada_blog">Entrada de blog</option>
-        <option value="video">Vídeo documental</option>
-        <option value="ecoaula">Ecoaula</option>
-        <option value="voluntariado">Jornada de voluntariado</option>
-        <option value="sensibilizacion_otra">Otra actividad de sensibilización</option>
-        <option value="nota_prensa">Nota de prensa (comunicación externa)</option>
+        <option value="publicacion_red" ${e?.tipo==='publicacion_red'?'selected':''}>Publicación en redes</option>
+        <option value="entrada_blog" ${e?.tipo==='entrada_blog'?'selected':''}>Entrada de blog</option>
+        <option value="video" ${e?.tipo==='video'?'selected':''}>Vídeo documental</option>
+        <option value="ecoaula" ${e?.tipo==='ecoaula'?'selected':''}>Ecoaula</option>
+        <option value="voluntariado" ${e?.tipo==='voluntariado'?'selected':''}>Jornada de voluntariado</option>
+        <option value="sensibilizacion_otra" ${e?.tipo==='sensibilizacion_otra'?'selected':''}>Otra actividad de sensibilización</option>
+        <option value="nota_prensa" ${e?.tipo==='nota_prensa'?'selected':''}>Nota de prensa (comunicación externa)</option>
       </select>
-      <input id="cm-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <input id="cm-fecha" type="date" value="${e?.fecha ?? new Date().toISOString().slice(0,10)}">
     </div>
-    <input id="cm-titulo" placeholder="Título / descripción breve" style="margin-bottom:10px;">
-    <input id="cm-enlace" placeholder="Enlace (opcional)" style="margin-bottom:10px;">
+    <input id="cm-titulo" placeholder="Título / descripción breve" value="${e?.titulo ?? ''}" style="margin-bottom:10px;">
+    <input id="cm-enlace" placeholder="Enlace (opcional)" value="${e?.enlace_url ?? ''}" style="margin-bottom:10px;">
     <div style="margin-bottom:10px;">
-      <label class="section-sub" style="display:block; margin-bottom:4px;">Adjuntar archivo (PDF o imagen, ej. edición impresa)</label>
+      <label class="section-sub" style="display:block; margin-bottom:4px;">Adjuntar archivo (PDF o imagen, ej. edición impresa)${e?.archivo_url ? ' — ya hay uno subido, elige otro solo si quieres sustituirlo' : ''}</label>
       <input type="file" id="cm-archivo" accept=".pdf,image/*">
+      ${e?.archivo_url ? `<p class="section-sub" style="margin:4px 0 0;"><a href="${e.archivo_url}" target="_blank">Ver archivo actual</a></p>` : ''}
     </div>
     <div id="cm-campo-personas" style="display:none; margin-bottom:10px;">
-      <label class="section-sub" style="display:block; margin-bottom:4px;">Personas alcanzadas (suma al indicador 4.1)</label>
-      <input id="cm-personas" type="number" placeholder="Nº de personas">
+      <label class="section-sub" style="display:block; margin-bottom:4px;">Personas alcanzadas (suma al indicador 4.1 solo al crear)</label>
+      <input id="cm-personas" type="number" placeholder="Nº de personas" value="${e?.personas_alcanzadas ?? ''}">
     </div>
     <div id="cm-campo-medio" style="display:none; margin-bottom:10px;">
       <label class="section-sub" style="display:block; margin-bottom:4px;">Medio de publicación</label>
-      <input id="cm-medio" placeholder="Ej. Valencia Plaza, Paterna Ahora...">
+      <input id="cm-medio" placeholder="Ej. Valencia Plaza, Paterna Ahora..." value="${e?.medio ?? ''}">
     </div>
-    <textarea id="cm-notas" placeholder="Notas (opcional)" class="textarea-comite"></textarea>
-    <button class="btn-primary btn-inline" onclick="crearComunicacion()">Guardar</button>
+    <textarea id="cm-notas" placeholder="Notas (opcional)" class="textarea-comite">${e?.notas ?? ''}</textarea>
+    <button class="btn-primary btn-inline" onclick="crearComunicacion(${id ? `'${id}'` : 'null'})">Guardar</button>
     <div id="comunicacion-msg" class="section-sub"></div>
   `);
   cambiarCamposComunicacion();
@@ -1991,16 +2067,15 @@ function cambiarCamposComunicacion(){
   document.getElementById('cm-campo-medio').style.display = tipo === 'nota_prensa' ? 'block' : 'none';
 }
 
-async function crearComunicacion(){
+async function crearComunicacion(id){
   const msg = document.getElementById('comunicacion-msg');
   const titulo = document.getElementById('cm-titulo').value.trim();
   if (!titulo){ msg.textContent = 'El título es obligatorio.'; return; }
-  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
   const tipo = document.getElementById('cm-tipo').value;
   const fecha = document.getElementById('cm-fecha').value;
   const personas = document.getElementById('cm-personas').value || null;
 
-  let archivoUrl = null;
+  let archivoUrl = id ? (cacheComunicacion[id]?.archivo_url ?? null) : null;
   const archivo = document.getElementById('cm-archivo').files[0];
   if (archivo){
     msg.textContent = 'Subiendo archivo...';
@@ -2011,32 +2086,41 @@ async function crearComunicacion(){
     archivoUrl = urlData.publicUrl;
   }
 
-  const { error } = await sb.from('actividades_comunicacion').insert({
-    proyecto_id: proyecto.id,
+  const datos = {
     tipo, fecha, titulo,
     enlace_url: document.getElementById('cm-enlace').value.trim() || null,
     personas_alcanzadas: personas,
     medio: document.getElementById('cm-medio').value.trim() || null,
     archivo_url: archivoUrl,
     notas: document.getElementById('cm-notas').value.trim() || null,
-  });
+  };
+
+  let error;
+  if (id){
+    ({ error } = await sb.from('actividades_comunicacion').update(datos).eq('id', id));
+  } else {
+    const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+    ({ error } = await sb.from('actividades_comunicacion').insert({ ...datos, proyecto_id: proyecto.id }));
+  }
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
 
-  // Incrementa automáticamente el/los indicador(es) correspondientes
-  const incrementos = {
-    publicacion_red: [['Indicador 4.4a', 1]],
-    entrada_blog: [['Indicador 4.4b', 1]],
-    video: [['Indicador 4.4c', 1]],
-    ecoaula: [['Indicador 4.2', 1]],
-    voluntariado: [['Indicador 4.3', 1]],
-    sensibilizacion_otra: [],
-  }[tipo] || [];
+  if (!id){
+    const incrementos = {
+      publicacion_red: [['Indicador 4.4a', 1]],
+      entrada_blog: [['Indicador 4.4b', 1]],
+      video: [['Indicador 4.4c', 1]],
+      ecoaula: [['Indicador 4.2', 1]],
+      voluntariado: [['Indicador 4.3', 1]],
+      sensibilizacion_otra: [],
+      nota_prensa: [],
+    }[tipo] || [];
 
-  if (personas && ['ecoaula','voluntariado','sensibilizacion_otra'].includes(tipo)){
-    incrementos.push(['Indicador 4.1', parseInt(personas)]);
-  }
-  for (const [codigo, delta] of incrementos){
-    await sb.rpc('incrementar_indicador', { p_codigo: codigo, p_delta: delta });
+    if (personas && ['ecoaula','voluntariado','sensibilizacion_otra'].includes(tipo)){
+      incrementos.push(['Indicador 4.1', parseInt(personas)]);
+    }
+    for (const [codigo, delta] of incrementos){
+      await sb.rpc('incrementar_indicador', { p_codigo: codigo, p_delta: delta });
+    }
   }
 
   cerrarModal();
@@ -2195,6 +2279,261 @@ async function crearGasto(){
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
   cerrarModal();
   await renderPresupuesto();
+}
+
+// =====================================================================
+// MÓDULO: INDICADORES FB (Artículo 21 de la convocatoria)
+// =====================================================================
+let tabFBActual = 'informe';
+
+async function cambiarTabFB(tab){
+  tabFBActual = tab;
+  document.querySelectorAll('[data-tab-fb]').forEach(b => b.classList.toggle('activa', b.dataset.tabFb === tab));
+  const cont = document.getElementById('contenido-fb');
+  cont.innerHTML = '<p class="section-sub">Cargando...</p>';
+  if (tab === 'informe') await renderInformeFB(cont);
+  if (tab === 'amenazas') await renderListaSimpleFB(cont, 'amenazas_biodiversidad', 'amenaza');
+  if (tab === 'empleos') await renderListaSimpleFB(cont, 'empleos_generados', 'empleo');
+  if (tab === 'especies') await renderListaSimpleFB(cont, 'especies_conservacion', 'especie');
+  if (tab === 'superficies') await renderListaSimpleFB(cont, 'superficies_actuacion', 'superficie');
+}
+
+// --------- Mini-CRUD genérico para amenazas / empleos / especies / superficies ---------
+async function renderListaSimpleFB(cont, tabla, clave){
+  const { data: filas, error } = await sb.from(tabla).select('*').order('fecha', { ascending:false });
+  if (error){ cont.innerHTML = `<p class="section-sub">Error: ${error.message}</p>`; return; }
+
+  const render = {
+    amenaza: f => `<strong>${f.tipo}</strong>${f.descripcion ? ` — ${f.descripcion}` : ''}`,
+    empleo: f => `<strong>${f.tipo} / ${f.plazo} plazo</strong>${f.sexo ? ` · ${f.sexo}` : ''}${f.descripcion ? ` — ${f.descripcion}` : ''}`,
+    especie: f => `<strong>${f.especie}</strong>${f.accion_realizada ? ` — ${f.accion_realizada}` : ''}`,
+    superficie: f => `<strong>${f.tipo}</strong> · ${f.km2} km²${f.provincia ? ` · ${f.provincia}` : ''}${f.municipio ? `/${f.municipio}` : ''}${f.tipo_habitat ? ` · ${f.tipo_habitat}` : ''}`,
+  }[clave];
+
+  cont.innerHTML = `
+    <button class="btn-anadir" onclick="abrirModalFB('${clave}')">+ Añadir</button>
+    <div>
+      ${(!filas || filas.length === 0) ? '<p class="section-sub">Todavía no hay registros.</p>' : filas.map(f => `
+        <div class="card fila-miembro">
+          <div><p style="font-size:13px; margin:0;">${render(f)}</p><p class="section-sub" style="margin:2px 0 0;">${f.fecha}</p></div>
+          <button class="btn-secundario btn-mini" onclick="eliminarFilaFB('${tabla}','${f.id}')">Eliminar</button>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+async function eliminarFilaFB(tabla, id){
+  const ok = confirm('¿Eliminar este registro?');
+  if (!ok) return;
+  await sb.from(tabla).delete().eq('id', id);
+  await cambiarTabFB(tabFBActual);
+}
+
+function abrirModalFB(clave){
+  const formularios = {
+    amenaza: `
+      <input id="fb-tipo" placeholder="Tipo de amenaza (ej. especie invasora, degradación de hábitat...)" style="margin-bottom:10px;">
+      <textarea id="fb-descripcion" placeholder="Descripción" class="textarea-comite"></textarea>
+      <input id="fb-fecha" type="date" value="${new Date().toISOString().slice(0,10)}" style="margin-top:10px;">
+      <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarFilaFB('amenazas_biodiversidad','amenaza')">Guardar</button>`,
+    empleo: `
+      <div class="form-grid">
+        <select id="fb-tipo"><option value="directo">Directo</option><option value="indirecto">Indirecto</option></select>
+        <select id="fb-plazo"><option value="corto">Corto plazo</option><option value="largo">Largo plazo</option></select>
+        <select id="fb-sexo"><option value="">Sin especificar</option><option value="mujer">Mujer</option><option value="hombre">Hombre</option><option value="otro">Otro</option></select>
+        <input id="fb-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      </div>
+      <textarea id="fb-descripcion" placeholder="Descripción (ej. puesto, entidad)" class="textarea-comite"></textarea>
+      <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarFilaFB('empleos_generados','empleo')">Guardar</button>`,
+    especie: `
+      <input id="fb-especie" placeholder="Especie" style="margin-bottom:10px;">
+      <textarea id="fb-accion" placeholder="Acción de conservación realizada" class="textarea-comite"></textarea>
+      <input id="fb-fecha" type="date" value="${new Date().toISOString().slice(0,10)}" style="margin-top:10px;">
+      <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarFilaFB('especies_conservacion','especie')">Guardar</button>`,
+    superficie: `
+      <div class="form-grid">
+        <select id="fb-tipo">
+          <option value="intervencion">Intervención</option>
+          <option value="restauracion">Restauración/mejora de hábitat</option>
+          <option value="prevencion_inundacion">Prevención de inundación</option>
+        </select>
+        <input id="fb-km2" type="number" step="0.001" placeholder="km²">
+        <input id="fb-provincia" placeholder="Provincia">
+        <input id="fb-municipio" placeholder="Municipio">
+        <input id="fb-habitat" placeholder="Tipo de hábitat (opcional)">
+        <input id="fb-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      </div>
+      <textarea id="fb-descripcion" placeholder="Descripción (opcional)" class="textarea-comite"></textarea>
+      <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarFilaFB('superficies_actuacion','superficie')">Guardar</button>`,
+  };
+  const titulos = { amenaza:'Nueva amenaza a la biodiversidad', empleo:'Nuevo empleo generado', especie:'Nueva especie con acción de conservación', superficie:'Nueva superficie de actuación' };
+  abrirModal(titulos[clave], formularios[clave] + '<div id="fb-msg" class="section-sub"></div>');
+}
+
+async function guardarFilaFB(tabla, clave){
+  const msg = document.getElementById('fb-msg');
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+  let datos = { proyecto_id: proyecto.id, fecha: document.getElementById('fb-fecha').value };
+
+  if (clave === 'amenaza') datos = { ...datos, tipo: document.getElementById('fb-tipo').value.trim(), descripcion: document.getElementById('fb-descripcion').value.trim() || null };
+  if (clave === 'empleo') datos = { ...datos, tipo: document.getElementById('fb-tipo').value, plazo: document.getElementById('fb-plazo').value, sexo: document.getElementById('fb-sexo').value || null, descripcion: document.getElementById('fb-descripcion').value.trim() || null };
+  if (clave === 'especie') datos = { ...datos, especie: document.getElementById('fb-especie').value.trim(), accion_realizada: document.getElementById('fb-accion').value.trim() || null };
+  if (clave === 'superficie') datos = { ...datos, tipo: document.getElementById('fb-tipo').value, km2: document.getElementById('fb-km2').value || 0, provincia: document.getElementById('fb-provincia').value.trim() || null, municipio: document.getElementById('fb-municipio').value.trim() || null, tipo_habitat: document.getElementById('fb-habitat').value.trim() || null, descripcion: document.getElementById('fb-descripcion').value.trim() || null };
+
+  const { error } = await sb.from(tabla).insert(datos);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await cambiarTabFB(tabFBActual);
+}
+
+// --------- Informe calculado (a-m) ---------
+function calcularGrupoEdad(fechaNacimiento){
+  if (!fechaNacimiento) return null;
+  const edad = Math.floor((Date.now() - new Date(fechaNacimiento)) / (365.25*24*60*60*1000));
+  if (edad < 18) return 'Menor de 18';
+  if (edad <= 29) return '18-29';
+  if (edad <= 44) return '30-44';
+  if (edad <= 64) return '45-64';
+  return '65 o más';
+}
+
+async function obtenerDatosInformeFB(){
+  const [
+    { data: brigadistas }, { data: comunicacion }, { data: amenazas },
+    { data: empleos }, { data: especies }, { data: superficies },
+    { data: actividadesForm },
+  ] = await Promise.all([
+    sb.from('brigadistas').select('nombre, sexo, situacion_laboral_alta, fecha_nacimiento, horas_formacion_tecnica, horas_formacion_transversal, estado_insercion'),
+    sb.from('actividades_comunicacion').select('tipo, titulo, fecha'),
+    sb.from('amenazas_biodiversidad').select('*'),
+    sb.from('empleos_generados').select('*'),
+    sb.from('especies_conservacion').select('*'),
+    sb.from('superficies_actuacion').select('*'),
+    sb.from('actividades').select('codigo, nombre').in('codigo', ['A3','A4']),
+  ]);
+  return { brigadistas: brigadistas||[], comunicacion: comunicacion||[], amenazas: amenazas||[], empleos: empleos||[], especies: especies||[], superficies: superficies||[], actividadesForm: actividadesForm||[] };
+}
+
+async function renderInformeFB(cont){
+  const d = await obtenerDatosInformeFB();
+
+  const porSexo = arr => {
+    const r = { mujer:0, hombre:0, otro:0, sin_especificar:0 };
+    arr.forEach(x => { r[x.sexo || 'sin_especificar'] = (r[x.sexo || 'sin_especificar']||0) + 1; });
+    return `Mujeres: ${r.mujer} · Hombres: ${r.hombre} · Otro: ${r.otro} · Sin especificar: ${r.sin_especificar}`;
+  };
+  const tiposComunicacion = {};
+  d.comunicacion.forEach(c => { tiposComunicacion[c.tipo] = (tiposComunicacion[c.tipo]||0) + 1; });
+  const superficiePorTipo = tipo => d.superficies.filter(s => s.tipo === tipo).reduce((s,x) => s + Number(x.km2), 0);
+  const empleosPorTipo = (tipo, plazo) => d.empleos.filter(e => e.tipo === tipo && e.plazo === plazo).length;
+
+  cont.innerHTML = `
+    <div class="card">
+      <h3 class="titulo-card">a) Beneficiarios por tipo de actividad y género</h3>
+      <p style="font-size:13px;">Brigadistas (participantes directos): ${d.brigadistas.length}</p>
+      <p class="section-sub">${porSexo(d.brigadistas)}</p>
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">b) Amenazas a la biodiversidad sobre las que se actúa</h3>
+      ${d.amenazas.length === 0 ? '<p class="section-sub">Sin registros todavía (pestaña "Amenazas").</p>' : d.amenazas.map(a => `<p style="font-size:13px; margin:2px 0;">• ${a.tipo}${a.descripcion ? ': ' + a.descripcion : ''}</p>`).join('')}
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">c) Empleos generados (directos/indirectos, corto/largo plazo)</h3>
+      <p style="font-size:13px;">Directos, corto plazo: ${empleosPorTipo('directo','corto')} · Directos, largo plazo: ${empleosPorTipo('directo','largo')}</p>
+      <p style="font-size:13px;">Indirectos, corto plazo: ${empleosPorTipo('indirecto','corto')} · Indirectos, largo plazo: ${empleosPorTipo('indirecto','largo')}</p>
+      <p class="section-sub">${porSexo(d.empleos)}</p>
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">d) y m) Actividades de capacitación, empleo, comunicación y educación</h3>
+      <p style="font-size:13px;">Actividades formativas del Cronograma: ${d.actividadesForm.map(a=>a.codigo+' '+a.nombre).join('; ') || '—'}</p>
+      <p style="font-size:13px; margin-top:6px;">Actividades de comunicación por tipo:</p>
+      ${Object.entries(tiposComunicacion).map(([t,n]) => `<p class="section-sub" style="margin:2px 0;">${ETIQUETAS_TIPO_COMUNICACION[t]||t}: ${n}</p>`).join('') || '<p class="section-sub">Sin registros.</p>'}
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">e) Actividades de comunicación, sensibilización y/o educación</h3>
+      ${d.comunicacion.length === 0 ? '<p class="section-sub">Sin registros.</p>' : d.comunicacion.slice(0,10).map(c => `<p style="font-size:13px; margin:2px 0;">${c.fecha} — ${ETIQUETAS_TIPO_COMUNICACION[c.tipo]||c.tipo}: ${c.titulo}</p>`).join('') + (d.comunicacion.length>10 ? `<p class="section-sub">... y ${d.comunicacion.length-10} más (ver módulo Comunicación)</p>` : '')}
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">f) Superficie total de intervención (km²)</h3>
+      <p style="font-size:13px;">${superficiePorTipo('intervencion').toFixed(3)} km²</p>
+      ${d.superficies.filter(s=>s.tipo==='intervencion').map(s => `<p class="section-sub" style="margin:2px 0;">${s.provincia||'—'}${s.municipio?'/'+s.municipio:''}: ${s.km2} km²</p>`).join('')}
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">g) Superficie de restauración y mejora de hábitat</h3>
+      <p style="font-size:13px;">${superficiePorTipo('restauracion').toFixed(3)} km²</p>
+      ${d.superficies.filter(s=>s.tipo==='restauracion').map(s => `<p class="section-sub" style="margin:2px 0;">${s.tipo_habitat||'Sin tipo de hábitat especificado'}: ${s.km2} km²</p>`).join('')}
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">h) Superficie de mejora en prevención de inundación</h3>
+      <p style="font-size:13px;">${superficiePorTipo('prevencion_inundacion').toFixed(3)} km²</p>
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">i) Especies con acciones de conservación</h3>
+      ${d.especies.length === 0 ? '<p class="section-sub">Sin registros todavía (pestaña "Especies"). También puedes derivarlas de las especies usadas en Vivero y campo.</p>' : d.especies.map(e => `<p style="font-size:13px; margin:2px 0;">• ${e.especie}${e.accion_realizada ? ': ' + e.accion_realizada : ''}</p>`).join('')}
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">j) Personas en formación (situación laboral, sexo, edad)</h3>
+      ${d.brigadistas.map(b => `<p style="font-size:13px; margin:2px 0;">${b.nombre}: ${b.horas_formacion_tecnica+b.horas_formacion_transversal}h · ${b.sexo||'sexo sin especificar'} · ${calcularGrupoEdad(b.fecha_nacimiento)||'edad sin especificar'} · ${b.situacion_laboral_alta||'situación laboral sin especificar'}</p>`).join('') || '<p class="section-sub">Sin brigadistas registrados.</p>'}
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">k) Personas en sensibilización (sexo, edad)</h3>
+      <p class="section-sub">No desglosado por sexo/edad — se registra como número total de personas alcanzadas en el módulo Comunicación (indicador 4.1).</p>
+    </div>
+    <div class="card">
+      <h3 class="titulo-card">l) Personas voluntarias (sexo, edad) y nº de iniciativas</h3>
+      <p style="font-size:13px;">Nº de jornadas de voluntariado: ${tiposComunicacion['voluntariado'] || 0}</p>
+      <p class="section-sub">Sin desglose por sexo/edad de las personas voluntarias.</p>
+    </div>
+    <p class="section-sub" style="margin-top:10px;">Generado el ${new Date().toLocaleDateString('es-ES')} desde TuriaViu.</p>`;
+}
+
+function descargarInformeFB(){
+  obtenerDatosInformeFB().then(d => {
+    const doc = new jspdf.jsPDF();
+    let y = 20;
+    doc.setFontSize(14); doc.text('TuriaViu · Indicadores Art. 21 — Fundación Biodiversidad', 14, y); y += 10;
+    doc.setFontSize(9); doc.text(`Generado el ${new Date().toLocaleDateString('es-ES')}`, 14, y); y += 10;
+
+    const seccion = (titulo, lineas) => {
+      if (y > 260){ doc.addPage(); y = 20; }
+      doc.setFontSize(11); doc.setFont(undefined,'bold'); doc.text(titulo, 14, y); doc.setFont(undefined,'normal'); y += 7;
+      doc.setFontSize(9.5);
+      lineas.forEach(l => {
+        const wrapped = doc.splitTextToSize(l, 180);
+        wrapped.forEach(w => { if (y > 280){ doc.addPage(); y = 20; } doc.text(w, 14, y); y += 5.5; });
+      });
+      y += 4;
+    };
+
+    const porSexo = arr => {
+      const r = { mujer:0, hombre:0, otro:0 };
+      arr.forEach(x => { if (r[x.sexo] !== undefined) r[x.sexo]++; });
+      return `Mujeres: ${r.mujer} · Hombres: ${r.hombre} · Otro: ${r.otro}`;
+    };
+    const tiposComunicacion = {};
+    d.comunicacion.forEach(c => { tiposComunicacion[c.tipo] = (tiposComunicacion[c.tipo]||0) + 1; });
+    const superficiePorTipo = tipo => d.superficies.filter(s => s.tipo === tipo).reduce((s,x) => s + Number(x.km2), 0);
+    const empleosPorTipo = (tipo, plazo) => d.empleos.filter(e => e.tipo === tipo && e.plazo === plazo).length;
+
+    seccion('a) Beneficiarios por género', [`Brigadistas: ${d.brigadistas.length}`, porSexo(d.brigadistas)]);
+    seccion('b) Amenazas a la biodiversidad', d.amenazas.map(a => `${a.tipo}${a.descripcion?': '+a.descripcion:''}`).length ? d.amenazas.map(a => `${a.tipo}${a.descripcion?': '+a.descripcion:''}`) : ['Sin registros.']);
+    seccion('c) Empleos generados', [
+      `Directos corto plazo: ${empleosPorTipo('directo','corto')} · Directos largo plazo: ${empleosPorTipo('directo','largo')}`,
+      `Indirectos corto plazo: ${empleosPorTipo('indirecto','corto')} · Indirectos largo plazo: ${empleosPorTipo('indirecto','largo')}`,
+      porSexo(d.empleos)
+    ]);
+    seccion('d) y m) Actividades de capacitación/empleo/comunicación', Object.entries(tiposComunicacion).map(([t,n]) => `${ETIQUETAS_TIPO_COMUNICACION[t]||t}: ${n}`));
+    seccion('e) Actividades de comunicación/sensibilización/educación', d.comunicacion.map(c => `${c.fecha} — ${ETIQUETAS_TIPO_COMUNICACION[c.tipo]||c.tipo}: ${c.titulo}`));
+    seccion('f) Superficie total de intervención', [`${superficiePorTipo('intervencion').toFixed(3)} km²`]);
+    seccion('g) Superficie de restauración/mejora de hábitat', [`${superficiePorTipo('restauracion').toFixed(3)} km²`]);
+    seccion('h) Superficie de prevención de inundación', [`${superficiePorTipo('prevencion_inundacion').toFixed(3)} km²`]);
+    seccion('i) Especies con acciones de conservación', d.especies.length ? d.especies.map(e => `${e.especie}${e.accion_realizada?': '+e.accion_realizada:''}`) : ['Sin registros.']);
+    seccion('j) Personas en formación', d.brigadistas.map(b => `${b.nombre}: ${(b.horas_formacion_tecnica||0)+(b.horas_formacion_transversal||0)}h · ${b.sexo||'sin especificar'} · ${calcularGrupoEdad(b.fecha_nacimiento)||'sin especificar'} · ${b.situacion_laboral_alta||'sin especificar'}`));
+    seccion('k) Personas en sensibilización', ['No desglosado por sexo/edad (se registra como total de personas alcanzadas).']);
+    seccion('l) Personas voluntarias e iniciativas', [`Nº de jornadas de voluntariado: ${tiposComunicacion['voluntariado']||0}`, 'Sin desglose por sexo/edad.']);
+
+    doc.save(`indicadores_FB_turiaviu_${new Date().toISOString().slice(0,10)}.pdf`);
+  });
 }
 
 // =====================================================================
