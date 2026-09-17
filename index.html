@@ -438,6 +438,7 @@ async function cargarModulo(id){
         <button class="tab-comite" data-tab-fb="empleos" onclick="cambiarTabFB('empleos')">Empleos generados</button>
         <button class="tab-comite" data-tab-fb="especies" onclick="cambiarTabFB('especies')">Especies</button>
         <button class="tab-comite" data-tab-fb="superficies" onclick="cambiarTabFB('superficies')">Superficies</button>
+        <button class="tab-comite" data-tab-fb="voluntarios" onclick="cambiarTabFB('voluntarios')">Voluntarios</button>
       </div>
       <div id="contenido-fb"><p class="section-sub">Cargando...</p></div>`;
     await cambiarTabFB('informe');
@@ -2304,6 +2305,7 @@ async function cambiarTabFB(tab){
   if (tab === 'empleos') await renderListaSimpleFB(cont, 'empleos_generados', 'empleo');
   if (tab === 'especies') await renderListaSimpleFB(cont, 'especies_conservacion', 'especie');
   if (tab === 'superficies') await renderListaSimpleFB(cont, 'superficies_actuacion', 'superficie');
+  if (tab === 'voluntarios') await renderVoluntarios(cont);
 }
 
 // --------- Mini-CRUD genérico para amenazas / empleos / especies / superficies ---------
@@ -2394,6 +2396,90 @@ async function guardarFilaFB(tabla, clave){
   await cambiarTabFB(tabFBActual);
 }
 
+// --------- Voluntarios (registro individual, indicador l) ---------
+let cacheVoluntarios = {};
+
+async function renderVoluntarios(cont){
+  const { data: voluntarios, error } = await sb.from('voluntarios').select('*').order('fecha_alta', { ascending:false });
+  if (error){ cont.innerHTML = `<p class="section-sub">Error: ${error.message}</p>`; return; }
+  cacheVoluntarios = {};
+  (voluntarios || []).forEach(v => cacheVoluntarios[v.id] = v);
+
+  cont.innerHTML = `
+    <button class="btn-anadir" onclick="abrirModalVoluntario()">+ Añadir voluntario</button>
+    <div>
+      ${(!voluntarios || voluntarios.length === 0) ? '<p class="section-sub">Todavía no hay voluntarios registrados.</p>' : voluntarios.map(v => `
+        <div class="card fila-miembro">
+          <div>
+            <strong>${v.nombre}</strong>
+            <p class="section-sub" style="margin:2px 0 0;">${v.sexo || 'Sexo sin especificar'} · ${calcularGrupoEdad(v.fecha_nacimiento) || 'Edad sin especificar'} · Alta: ${v.fecha_alta}</p>
+            <p class="section-sub" style="margin:2px 0 0;">${v.proteccion_datos_firmada ? '✓ Protección de datos firmada' : '⚠ Protección de datos pendiente'}</p>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+            <button class="btn-secundario btn-mini" onclick="abrirModalVoluntario('${v.id}')">Editar</button>
+            <button class="btn-secundario btn-mini" onclick="eliminarVoluntario('${v.id}')">Eliminar</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+function abrirModalVoluntario(id){
+  const v = id ? cacheVoluntarios[id] : null;
+  abrirModal(v ? 'Editar voluntario' : 'Añadir voluntario', `
+    <div class="form-grid">
+      <input id="vo-nombre" placeholder="Nombre y apellidos" value="${v?.nombre ?? ''}">
+      <select id="vo-sexo">
+        <option value="" ${!v?.sexo?'selected':''}>Sexo: sin especificar</option>
+        <option value="mujer" ${v?.sexo==='mujer'?'selected':''}>Mujer</option>
+        <option value="hombre" ${v?.sexo==='hombre'?'selected':''}>Hombre</option>
+        <option value="otro" ${v?.sexo==='otro'?'selected':''}>Otro</option>
+      </select>
+      <input id="vo-fecha-nacimiento" type="date" value="${v?.fecha_nacimiento ?? ''}">
+      <input id="vo-fecha-alta" type="date" value="${v?.fecha_alta ?? new Date().toISOString().slice(0,10)}">
+    </div>
+    <label class="check-asistente" style="margin:10px 0;">
+      <input type="checkbox" id="vo-proteccion" ${v?.proteccion_datos_firmada ? 'checked' : ''}> Ha firmado el documento de protección de datos
+    </label>
+    <textarea id="vo-notas" placeholder="Notas (opcional)" class="textarea-comite">${v?.notas ?? ''}</textarea>
+    <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarVoluntario(${id ? `'${id}'` : 'null'})">Guardar</button>
+    <div id="voluntario-msg" class="section-sub"></div>
+  `);
+}
+
+async function guardarVoluntario(id){
+  const msg = document.getElementById('voluntario-msg');
+  const nombre = document.getElementById('vo-nombre').value.trim();
+  if (!nombre){ msg.textContent = 'El nombre es obligatorio.'; return; }
+
+  const datos = {
+    nombre,
+    sexo: document.getElementById('vo-sexo').value || null,
+    fecha_nacimiento: document.getElementById('vo-fecha-nacimiento').value || null,
+    fecha_alta: document.getElementById('vo-fecha-alta').value,
+    proteccion_datos_firmada: document.getElementById('vo-proteccion').checked,
+    notas: document.getElementById('vo-notas').value.trim() || null,
+  };
+
+  let error;
+  if (id){
+    ({ error } = await sb.from('voluntarios').update(datos).eq('id', id));
+  } else {
+    const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+    ({ error } = await sb.from('voluntarios').insert({ ...datos, proyecto_id: proyecto.id }));
+  }
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await renderVoluntarios(document.getElementById('contenido-fb'));
+}
+
+async function eliminarVoluntario(id){
+  const ok = confirm('¿Eliminar este voluntario del registro?');
+  if (!ok) return;
+  await sb.from('voluntarios').delete().eq('id', id);
+  await renderVoluntarios(document.getElementById('contenido-fb'));
+}
+
 // --------- Informe calculado (a-m) ---------
 function calcularGrupoEdad(fechaNacimiento){
   if (!fechaNacimiento) return null;
@@ -2409,7 +2495,7 @@ async function obtenerDatosInformeFB(){
   const [
     { data: brigadistas }, { data: comunicacion }, { data: amenazas },
     { data: empleos }, { data: especies }, { data: superficies },
-    { data: actividadesForm }, { data: rrhh },
+    { data: actividadesForm }, { data: rrhh }, { data: voluntarios },
   ] = await Promise.all([
     sb.from('brigadistas').select('nombre, sexo, situacion_laboral_alta, fecha_nacimiento, horas_formacion_tecnica, horas_formacion_transversal, estado_insercion'),
     sb.from('actividades_comunicacion').select('tipo, titulo, fecha'),
@@ -2419,8 +2505,9 @@ async function obtenerDatosInformeFB(){
     sb.from('superficies_actuacion').select('*'),
     sb.from('actividades').select('codigo, nombre').in('codigo', ['A3','A4']),
     sb.from('rrhh_personal').select('nombre, sexo').eq('activo', true),
+    sb.from('voluntarios').select('*'),
   ]);
-  return { brigadistas: brigadistas||[], comunicacion: comunicacion||[], amenazas: amenazas||[], empleos: empleos||[], especies: especies||[], superficies: superficies||[], actividadesForm: actividadesForm||[], rrhh: rrhh||[] };
+  return { brigadistas: brigadistas||[], comunicacion: comunicacion||[], amenazas: amenazas||[], empleos: empleos||[], especies: especies||[], superficies: superficies||[], actividadesForm: actividadesForm||[], rrhh: rrhh||[], voluntarios: voluntarios||[] };
 }
 
 async function renderInformeFB(cont){
@@ -2491,8 +2578,13 @@ async function renderInformeFB(cont){
     </div>
     <div class="card">
       <h3 class="titulo-card">l) Personas voluntarias (sexo, edad) y nº de iniciativas</h3>
-      <p style="font-size:13px;">Nº de jornadas de voluntariado: ${tiposComunicacion['voluntariado'] || 0}</p>
-      <p class="section-sub">Sin desglose por sexo/edad de las personas voluntarias.</p>
+      <p style="font-size:13px;">Nº de jornadas de voluntariado: ${tiposComunicacion['voluntariado'] || 0} · Voluntarios registrados: ${d.voluntarios.length}</p>
+      <p class="section-sub">${porSexo(d.voluntarios)}</p>
+      ${['18-29','30-44','45-64','65 o más','Menor de 18'].map(g => {
+        const n = d.voluntarios.filter(v => calcularGrupoEdad(v.fecha_nacimiento) === g).length;
+        return n ? `<p class="section-sub" style="margin:2px 0;">${g}: ${n}</p>` : '';
+      }).join('')}
+      ${d.voluntarios.some(v => !v.proteccion_datos_firmada) ? `<p class="section-sub" style="color:var(--rosa-dark); margin-top:6px;">⚠ Hay ${d.voluntarios.filter(v=>!v.proteccion_datos_firmada).length} voluntario(s) sin protección de datos firmada.</p>` : ''}
     </div>
     <p class="section-sub" style="margin-top:10px;">Generado el ${new Date().toLocaleDateString('es-ES')} desde TuriaViu.</p>`;
 }
@@ -2541,7 +2633,14 @@ function descargarInformeFB(){
     seccion('i) Especies con acciones de conservación', d.especies.length ? d.especies.map(e => `${e.especie}${e.accion_realizada?': '+e.accion_realizada:''}`) : ['Sin registros.']);
     seccion('j) Personas en formación', d.brigadistas.map(b => `${b.nombre}: ${(b.horas_formacion_tecnica||0)+(b.horas_formacion_transversal||0)}h · ${b.sexo||'sin especificar'} · ${calcularGrupoEdad(b.fecha_nacimiento)||'sin especificar'} · ${b.situacion_laboral_alta||'sin especificar'}`));
     seccion('k) Personas en sensibilización', ['No desglosado por sexo/edad (se registra como total de personas alcanzadas).']);
-    seccion('l) Personas voluntarias e iniciativas', [`Nº de jornadas de voluntariado: ${tiposComunicacion['voluntariado']||0}`, 'Sin desglose por sexo/edad.']);
+    seccion('l) Personas voluntarias e iniciativas', [
+      `Nº de jornadas de voluntariado: ${tiposComunicacion['voluntariado']||0} · Voluntarios registrados: ${d.voluntarios.length}`,
+      porSexo(d.voluntarios),
+      ...['18-29','30-44','45-64','65 o más','Menor de 18'].map(g => {
+        const n = d.voluntarios.filter(v => calcularGrupoEdad(v.fecha_nacimiento) === g).length;
+        return n ? `${g}: ${n}` : null;
+      }).filter(Boolean),
+    ]);
 
     doc.save(`indicadores_FB_turiaviu_${new Date().toISOString().slice(0,10)}.pdf`);
   });
