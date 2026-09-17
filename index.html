@@ -344,7 +344,11 @@ async function mostrarApp(user){
 
 function renderSidebar(){
   const nav = document.getElementById('sidebar');
-  const lista = (miPerfil && miPerfil.rol === 'brigadista') ? MODULOS_BRIGADISTA : MODULOS;
+  let lista = (miPerfil && miPerfil.rol === 'brigadista') ? MODULOS_BRIGADISTA : MODULOS;
+  const puedeVerEconomico = !miPerfil || ['director','coordinadora'].includes(miPerfil.rol);
+  if (!puedeVerEconomico){
+    lista = lista.filter(m => !['rrhh','presupuesto'].includes(m.id));
+  }
   nav.innerHTML = lista.map(m => `
     <div class="modulo ${m.id === moduloActual ? 'activo' : ''}" onclick="cargarModulo('${m.id}')">      ${m.nombre}
       ${!m.activo ? `<span class="badge-proximamente">Sprint ${m.sprint}</span>` : ''}
@@ -488,6 +492,10 @@ async function cargarModulo(id){
   }
 
   if (id === 'rrhh'){
+    if (miPerfil && !['director','coordinadora'].includes(miPerfil.rol)){
+      main.innerHTML = `<h2>RRHH</h2><p class="section-sub">No tienes permiso para ver este módulo.</p>`;
+      return;
+    }
     main.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
         <div>
@@ -558,6 +566,10 @@ async function cargarModulo(id){
   }
 
   if (id === 'presupuesto'){
+    if (miPerfil && !['director','coordinadora'].includes(miPerfil.rol)){
+      main.innerHTML = `<h2>Presupuesto</h2><p class="section-sub">No tienes permiso para ver este módulo.</p>`;
+      return;
+    }
     main.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px;">
         <div>
@@ -707,7 +719,9 @@ async function renderInicio(){
   (gastos || []).forEach(g => { ejecutadoPorPartida[g.partida_id] = (ejecutadoPorPartida[g.partida_id]||0) + Number(g.importe); });
   const totalPresupuestado = (partidas || []).reduce((s,p) => s + Number(p.importe_presupuestado), 0);
   const totalEjecutado = (partidas || []).reduce((s,p) => s + (p.es_calculada_de_rrhh ? costePersonal : (ejecutadoPorPartida[p.id]||0)), 0);
-  const pctPresupuesto = totalPresupuestado ? Math.round((totalEjecutado/totalPresupuestado)*100) : 0;
+  const puedeVerPresupuesto = !miPerfil || ['director','coordinadora'].includes(miPerfil.rol);
+  const { data: pctPresupuestoPublico } = await sb.rpc('calcular_pct_presupuesto');
+  const pctPresupuesto = pctPresupuestoPublico ?? 0;
 
   const hectareas = (censos || []).reduce((s,c) => s + (Number(c.hectareas_intervenidas)||0), 0);
   const plantas = (lotes || []).reduce((s,l) => s + (Number(l.cantidad_sembrada)||0), 0);
