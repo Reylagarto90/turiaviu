@@ -1311,17 +1311,14 @@ const CONFIG_CSV = {
   brigadistas: {
     titulo: 'Actualizar Brigadistas desde CSV',
     tabla: 'brigadistas',
-    columnas: ['nombre','dni_nie','fecha_nacimiento','sexo','situacion_laboral_alta','telefono','email','fecha_alta','horas_formacion_tecnica','horas_formacion_transversal','sesiones_tutorizacion_psicosocial','estado_portfolio','estado_insercion','tipo_salida','fecha_insercion'],
-    ejemplo: 'Nombre Apellido,12345678A,1995-03-10,mujer,desempleada,600000000,nombre@ejemplo.com,2026-06-01,20,8,2,en_progreso,no_insertado,,',
+    columnas: ['nombre','fecha_nacimiento','sexo','situacion_laboral_alta','fecha_alta','horas_formacion_tecnica','horas_formacion_transversal','sesiones_tutorizacion_psicosocial','estado_portfolio','estado_insercion','tipo_salida','fecha_insercion'],
+    ejemplo: 'Nombre Apellido,1995-03-10,mujer,desempleada,2026-06-01,20,8,2,en_progreso,no_insertado,,',
     refrescar: () => renderBrigadistas(),
     mapaFila: (fila) => ({
       nombre: (fila.nombre || '').trim(),
-      dni_nie: fila.dni_nie?.trim() || null,
       fecha_nacimiento: fila.fecha_nacimiento?.trim() || null,
       sexo: fila.sexo?.trim() || null,
       situacion_laboral_alta: fila.situacion_laboral_alta?.trim() || null,
-      telefono: fila.telefono?.trim() || null,
-      email: fila.email?.trim() || null,
       fecha_alta: fila.fecha_alta?.trim() || null,
       horas_formacion_tecnica: fila.horas_formacion_tecnica ? parseFloat(fila.horas_formacion_tecnica) : 0,
       horas_formacion_transversal: fila.horas_formacion_transversal ? parseFloat(fila.horas_formacion_transversal) : 0,
@@ -1556,7 +1553,6 @@ async function renderBrigadistas(){
     <div class="card fila-miembro">
       <div>
         <strong>${b.nombre}</strong>
-        <p class="section-sub" style="margin:2px 0 0">${b.dni_nie ?? 'Sin DNI/NIE'}${b.telefono ? ' · ' + b.telefono : ''}${b.email ? ' · ' + b.email : ''}</p>
         <p class="section-sub" style="margin:2px 0 0">Formación: ${b.horas_formacion_tecnica}h técnica · ${b.horas_formacion_transversal}h transversal (meta: 300h / 120h)</p>
         <p class="section-sub" style="margin:2px 0 0">Tutorización psicosocial: ${b.sesiones_tutorizacion_psicosocial} sesiones</p>
         <p class="section-sub" style="margin:2px 0 0">Portfolio: ${ETIQUETAS_PORTFOLIO[b.estado_portfolio] || b.estado_portfolio} · Inserción: ${ETIQUETAS_INSERCION[b.estado_insercion] || b.estado_insercion}${b.tipo_salida ? ' (' + b.tipo_salida + ')' : ''}</p>
@@ -1613,10 +1609,7 @@ function abrirModalBrigadista(id){
     <p class="section-sub" style="margin:0 0 4px; font-weight:600;">Datos de alta</p>
     <div class="form-grid">
       ${campoIntake('Nombre y apellidos', 'br-nombre', 'text', b?.nombre)}
-      ${campoIntake('DNI / NIE', 'br-dni', 'text', b?.dni_nie)}
       ${campoIntake('Fecha de nacimiento', 'br-fecha-nacimiento', 'date', b?.fecha_nacimiento)}
-      ${campoIntake('Teléfono', 'br-telefono', 'text', b?.telefono)}
-      ${campoIntake('Correo electrónico', 'br-email', 'email', b?.email)}
       ${campoIntake('Fecha de alta', 'br-fecha-alta', 'date', b?.fecha_alta ?? new Date().toISOString().slice(0,10))}
       <div>
         <label class="section-sub" style="display:block; margin-bottom:4px;">Sexo (para el reporte a la Fundación Biodiversidad)</label>
@@ -1642,10 +1635,7 @@ async function guardarBrigadista(id){
 
   const datos = {
     nombre,
-    dni_nie: document.getElementById('br-dni').value.trim() || null,
     fecha_nacimiento: document.getElementById('br-fecha-nacimiento').value || null,
-    telefono: document.getElementById('br-telefono').value.trim() || null,
-    email: document.getElementById('br-email').value.trim() || null,
     fecha_alta: document.getElementById('br-fecha-alta').value,
     sexo: document.getElementById('br-sexo').value || null,
     situacion_laboral_alta: document.getElementById('br-situacion-laboral').value.trim() || null,
