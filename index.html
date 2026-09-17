@@ -2589,12 +2589,39 @@ async function renderInformeFB(cont){
     <p class="section-sub" style="margin-top:10px;">Generado el ${new Date().toLocaleDateString('es-ES')} desde TuriaViu.</p>`;
 }
 
-function descargarInformeFB(){
-  obtenerDatosInformeFB().then(d => {
-    const doc = new jspdf.jsPDF();
-    let y = 20;
-    doc.setFontSize(14); doc.text('TuriaViu · Indicadores Art. 21 — Fundación Biodiversidad', 14, y); y += 10;
-    doc.setFontSize(9); doc.text(`Generado el ${new Date().toLocaleDateString('es-ES')}`, 14, y); y += 10;
+function cargarImagenBase64(url){
+  return fetch(url)
+    .then(r => r.blob())
+    .then(blob => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    }))
+    .catch(() => null); // si falla la carga del logo, seguimos sin él
+}
+
+async function descargarInformeFB(){
+  const [d, logoAfempes, bandaInstitucional] = await Promise.all([
+    obtenerDatosInformeFB(),
+    cargarImagenBase64('assets/logo_afempes.png'),
+    cargarImagenBase64('assets/banda_institucional.jpg'),
+  ]);
+
+  const doc = new jspdf.jsPDF();
+  let y = 12;
+
+  if (logoAfempes){
+    try { doc.addImage(logoAfempes, 'PNG', 14, y, 26, 18); } catch(e) {}
+  }
+  if (bandaInstitucional){
+    try { doc.addImage(bandaInstitucional, 'JPEG', 100, y + 2, 96, 16); } catch(e) {}
+  }
+  y += 26;
+
+  doc.setFontSize(14); doc.text('TuriaViu · Indicadores Art. 21 — Fundación Biodiversidad', 14, y); y += 10;
+  doc.setFontSize(9); doc.text(`Generado el ${new Date().toLocaleDateString('es-ES')}`, 14, y); y += 10;
+  {
 
     const seccion = (titulo, lineas) => {
       if (y > 260){ doc.addPage(); y = 20; }
@@ -2643,7 +2670,7 @@ function descargarInformeFB(){
     ]);
 
     doc.save(`indicadores_FB_turiaviu_${new Date().toISOString().slice(0,10)}.pdf`);
-  });
+  }
 }
 
 // =====================================================================
