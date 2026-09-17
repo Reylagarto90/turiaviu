@@ -2310,7 +2310,7 @@ async function cambiarTabFB(tab){
 
 // --------- Mini-CRUD genérico para amenazas / empleos / especies / superficies ---------
 async function renderListaSimpleFB(cont, tabla, clave){
-  const { data: filas, error } = await sb.from(tabla).select('*').order('fecha', { ascending:false });
+  const { data: filas, error } = await sb.from(tabla).select('*').order(clave === 'empleo' ? 'fecha_inicio' : 'fecha', { ascending:false });
   if (error){ cont.innerHTML = `<p class="section-sub">Error: ${error.message}</p>`; return; }
 
   const render = {
@@ -2319,13 +2319,14 @@ async function renderListaSimpleFB(cont, tabla, clave){
     especie: f => `<strong>${f.especie}</strong>${f.accion_realizada ? ` — ${f.accion_realizada}` : ''}`,
     superficie: f => `<strong>${f.tipo}</strong> · ${f.km2} km²${f.provincia ? ` · ${f.provincia}` : ''}${f.municipio ? `/${f.municipio}` : ''}${f.tipo_habitat ? ` · ${f.tipo_habitat}` : ''}`,
   }[clave];
+  const fechaTexto = f => clave === 'empleo' ? `${f.fecha_inicio}${f.fecha_fin ? ' → ' + f.fecha_fin : ' (en curso)'}` : f.fecha;
 
   cont.innerHTML = `
     <button class="btn-anadir" onclick="abrirModalFB('${clave}')">+ Añadir</button>
     <div>
       ${(!filas || filas.length === 0) ? '<p class="section-sub">Todavía no hay registros.</p>' : filas.map(f => `
         <div class="card fila-miembro">
-          <div><p style="font-size:13px; margin:0;">${render(f)}</p><p class="section-sub" style="margin:2px 0 0;">${f.fecha}</p></div>
+          <div><p style="font-size:13px; margin:0;">${render(f)}</p><p class="section-sub" style="margin:2px 0 0;">${fechaTexto(f)}</p></div>
           <button class="btn-secundario btn-mini" onclick="eliminarFilaFB('${tabla}','${f.id}')">Eliminar</button>
         </div>
       `).join('')}
@@ -2351,7 +2352,16 @@ function abrirModalFB(clave){
         <select id="fb-tipo"><option value="directo">Directo</option><option value="indirecto">Indirecto</option></select>
         <select id="fb-plazo"><option value="corto">Corto plazo</option><option value="largo">Largo plazo</option></select>
         <select id="fb-sexo"><option value="">Sin especificar</option><option value="mujer">Mujer</option><option value="hombre">Hombre</option><option value="otro">Otro</option></select>
-        <input id="fb-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
+      </div>
+      <div class="form-grid">
+        <div>
+          <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de inicio</label>
+          <input id="fb-fecha-inicio" type="date" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+        <div>
+          <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de fin (opcional)</label>
+          <input id="fb-fecha-fin" type="date">
+        </div>
       </div>
       <textarea id="fb-descripcion" placeholder="Descripción (ej. puesto, entidad)" class="textarea-comite"></textarea>
       <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarFilaFB('empleos_generados','empleo')">Guardar</button>`,
@@ -2383,10 +2393,11 @@ function abrirModalFB(clave){
 async function guardarFilaFB(tabla, clave){
   const msg = document.getElementById('fb-msg');
   const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
-  let datos = { proyecto_id: proyecto.id, fecha: document.getElementById('fb-fecha').value };
+  let datos = { proyecto_id: proyecto.id };
+  if (clave !== 'empleo') datos.fecha = document.getElementById('fb-fecha').value;
 
   if (clave === 'amenaza') datos = { ...datos, tipo: document.getElementById('fb-tipo').value.trim(), descripcion: document.getElementById('fb-descripcion').value.trim() || null };
-  if (clave === 'empleo') datos = { ...datos, tipo: document.getElementById('fb-tipo').value, plazo: document.getElementById('fb-plazo').value, sexo: document.getElementById('fb-sexo').value || null, descripcion: document.getElementById('fb-descripcion').value.trim() || null };
+  if (clave === 'empleo') datos = { ...datos, tipo: document.getElementById('fb-tipo').value, plazo: document.getElementById('fb-plazo').value, sexo: document.getElementById('fb-sexo').value || null, descripcion: document.getElementById('fb-descripcion').value.trim() || null, fecha_inicio: document.getElementById('fb-fecha-inicio').value, fecha_fin: document.getElementById('fb-fecha-fin').value || null };
   if (clave === 'especie') datos = { ...datos, especie: document.getElementById('fb-especie').value.trim(), accion_realizada: document.getElementById('fb-accion').value.trim() || null };
   if (clave === 'superficie') datos = { ...datos, tipo: document.getElementById('fb-tipo').value, km2: document.getElementById('fb-km2').value || 0, provincia: document.getElementById('fb-provincia').value.trim() || null, municipio: document.getElementById('fb-municipio').value.trim() || null, tipo_habitat: document.getElementById('fb-habitat').value.trim() || null, descripcion: document.getElementById('fb-descripcion').value.trim() || null };
 
