@@ -1291,20 +1291,17 @@ const CONFIG_CSV = {
   rrhh: {
     titulo: 'Actualizar RRHH desde CSV',
     tabla: 'rrhh_personal',
-    columnas: ['nombre','perfil','entidad','tipo_contractual','sexo','pct_dedicacion','meses_dedicacion','coste_mensual_bruto','email','telefono','fecha_alta'],
-    ejemplo: 'María Piqueras,Trabajadora social,AFEMPES,PT,mujer,50,12,1800,maria@afempes.es,600000000,2026-06-01',
+    columnas: ['nombre','perfil','tipo_contractual','sexo','pct_dedicacion','meses_dedicacion','coste_mensual_bruto','fecha_alta'],
+    ejemplo: 'María Piqueras,Trabajadora social,PT,mujer,50,12,1800,2026-06-01',
     refrescar: () => renderRrhh(),
     mapaFila: (fila) => ({
       nombre: (fila.nombre || '').trim(),
       perfil: fila.perfil?.trim() || null,
-      entidad: fila.entidad?.trim() || null,
       tipo_contractual: fila.tipo_contractual?.trim() || null,
       sexo: fila.sexo?.trim() || null,
       pct_dedicacion: fila.pct_dedicacion ? parseFloat(fila.pct_dedicacion) : null,
       meses_dedicacion: fila.meses_dedicacion ? parseFloat(fila.meses_dedicacion) : null,
       coste_mensual_bruto: fila.coste_mensual_bruto ? parseFloat(fila.coste_mensual_bruto) : null,
-      email: fila.email?.trim() || null,
-      telefono: fila.telefono?.trim() || null,
       fecha_alta: fila.fecha_alta?.trim() || null,
     })
   },
@@ -1457,9 +1454,8 @@ async function renderRrhh(){
     <div class="card fila-miembro">
       <div>
         <strong>${p.nombre}</strong>${p.tipo_contractual ? ` <span class="badge-rol">${p.tipo_contractual}</span>` : ''}${p.sexo ? ` <span class="badge-rol">${p.sexo}</span>` : ''}
-        <p class="section-sub" style="margin:2px 0 0">${p.perfil ?? ''}${p.entidad ? ' · ' + p.entidad : ''}</p>
+        <p class="section-sub" style="margin:2px 0 0">${p.perfil ?? ''}</p>
         <p class="section-sub" style="margin:2px 0 0">${p.pct_dedicacion ? `${p.pct_dedicacion}% dedicación` : ''}${p.meses_dedicacion ? ` · ${p.meses_dedicacion} meses` : ''}</p>
-        <p class="section-sub" style="margin:2px 0 0">${p.email ?? 'Sin email'}${p.telefono ? ' · ' + p.telefono : ''}</p>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
         <button class="btn-secundario" onclick="abrirModalRrhh('${p.id}')">Editar</button>
@@ -1477,7 +1473,6 @@ function abrirModalRrhh(id){
     <div class="form-grid">
       <input id="rr-nombre" placeholder="Nombre y apellidos" value="${p?.nombre ?? ''}">
       <input id="rr-perfil" placeholder="Perfil / cargo" value="${p?.perfil ?? ''}">
-      <input id="rr-entidad" placeholder="Entidad" value="${p?.entidad ?? ''}">
       <input id="rr-tipo" placeholder="Tipo contractual (PP, PT, TRADE...)" value="${p?.tipo_contractual ?? ''}">
       <select id="rr-sexo">
         <option value="" ${!p?.sexo?'selected':''}>Sexo: sin especificar</option>
@@ -1488,8 +1483,6 @@ function abrirModalRrhh(id){
       <input id="rr-dedicacion" type="number" step="0.1" placeholder="% dedicación" value="${p?.pct_dedicacion ?? ''}">
       <input id="rr-meses" type="number" step="0.1" placeholder="Meses de dedicación" value="${p?.meses_dedicacion ?? ''}">
       <input id="rr-coste" type="number" step="0.01" placeholder="Coste mensual bruto (€, jornada completa)" value="${p?.coste_mensual_bruto ?? ''}">
-      <input id="rr-email" type="email" placeholder="Correo electrónico" value="${p?.email ?? ''}">
-      <input id="rr-telefono" placeholder="Teléfono" value="${p?.telefono ?? ''}">
       <input id="rr-fecha-alta" type="date" value="${p?.fecha_alta ?? new Date().toISOString().slice(0,10)}">
     </div>
     <button class="btn-primary btn-inline" onclick="guardarRrhh(${id ? `'${id}'` : 'null'})">Guardar</button>
@@ -1505,14 +1498,11 @@ async function guardarRrhh(id){
   const datos = {
     nombre,
     perfil: document.getElementById('rr-perfil').value.trim() || null,
-    entidad: document.getElementById('rr-entidad').value.trim() || null,
     tipo_contractual: document.getElementById('rr-tipo').value.trim() || null,
     sexo: document.getElementById('rr-sexo').value || null,
     pct_dedicacion: document.getElementById('rr-dedicacion').value || null,
     meses_dedicacion: document.getElementById('rr-meses').value || null,
     coste_mensual_bruto: document.getElementById('rr-coste').value || null,
-    email: document.getElementById('rr-email').value.trim() || null,
-    telefono: document.getElementById('rr-telefono').value.trim() || null,
     fecha_alta: document.getElementById('rr-fecha-alta').value,
   };
 
