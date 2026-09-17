@@ -1558,72 +1558,40 @@ async function renderBrigadistas(){
         <p class="section-sub" style="margin:2px 0 0">Portfolio: ${ETIQUETAS_PORTFOLIO[b.estado_portfolio] || b.estado_portfolio} · Inserción: ${ETIQUETAS_INSERCION[b.estado_insercion] || b.estado_insercion}${b.tipo_salida ? ' (' + b.tipo_salida + ')' : ''}</p>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
-        <button class="btn-secundario" onclick="abrirModalBrigadista('${b.id}')">Editar</button>
-        <button class="btn-secundario" onclick="abrirModalVerDiario('${b.id}', '${b.nombre.replace(/'/g,"\\'")}')">Ver diario</button>
-        <button class="btn-secundario" onclick="abrirModalAsignarProfesionales('${b.id}', '${b.nombre.replace(/'/g,"\\'")}')">Asignar profesionales</button>
-        ${b.activo
-          ? `<button class="btn-secundario" onclick="darBajaBrigadista('${b.id}')">Dar de baja</button>`
-          : `<span class="badge-proximamente">Inactivo</span>`}
+        <button class="btn-anadir" style="margin:0; padding:8px 16px;" onclick="abrirFichaBrigadista('${b.id}')">Ver ficha completa</button>
+        ${!b.activo ? `<span class="badge-proximamente">Inactivo</span>` : ''}
       </div>
     </div>
   `).join('');
 }
 
 function abrirModalBrigadista(id){
-  const b = id ? cacheBrigadistas[id] : null;
+  if (id){ abrirFichaBrigadista(id); return; } // editar ya pasa por la ficha completa
+
   const campoIntake = (label, inputId, tipo, valor) => `
     <div>
       <label class="section-sub" style="display:block; margin-bottom:4px;">${label}</label>
       <input id="${inputId}" type="${tipo}" value="${valor ?? ''}">
     </div>`;
 
-  const bloqueSeguimiento = !id ? '' : `
-    <p class="section-sub" style="margin:16px 0 4px; font-weight:600;">Seguimiento (se actualiza con el tiempo)</p>
-    <div class="form-grid">
-      ${campoIntake('Horas formación técnica', 'br-horas-tecnica', 'number', b?.horas_formacion_tecnica ?? 0)}
-      ${campoIntake('Horas formación transversal', 'br-horas-transversal', 'number', b?.horas_formacion_transversal ?? 0)}
-      ${campoIntake('Sesiones de tutorización', 'br-sesiones', 'number', b?.sesiones_tutorizacion_psicosocial ?? 0)}
-      <div>
-        <label class="section-sub" style="display:block; margin-bottom:4px;">Estado del portfolio</label>
-        <select id="br-portfolio">
-          <option value="no_iniciado" ${b?.estado_portfolio==='no_iniciado'?'selected':''}>No iniciado</option>
-          <option value="en_progreso" ${b?.estado_portfolio==='en_progreso'?'selected':''}>En progreso</option>
-          <option value="completado" ${b?.estado_portfolio==='completado'?'selected':''}>Completado</option>
-        </select>
-      </div>
-      <div>
-        <label class="section-sub" style="display:block; margin-bottom:4px;">Estado de inserción</label>
-        <select id="br-insercion">
-          <option value="no_insertado" ${b?.estado_insercion==='no_insertado'?'selected':''}>No insertado</option>
-          <option value="en_proceso" ${b?.estado_insercion==='en_proceso'?'selected':''}>En proceso</option>
-          <option value="insertado" ${b?.estado_insercion==='insertado'?'selected':''}>Insertado</option>
-        </select>
-      </div>
-      ${campoIntake('Tipo de salida (si insertado)', 'br-tipo-salida', 'text', b?.tipo_salida)}
-      ${campoIntake('Fecha de inserción', 'br-fecha-insercion', 'date', b?.fecha_insercion)}
-    </div>
-    <label class="section-sub" style="display:block; margin:10px 0 4px;">Notas de tutorización psicosocial (dato sensible)</label>
-    <textarea id="br-notas" class="textarea-comite">${b?.notas_tutorizacion ?? ''}</textarea>`;
-
-  abrirModal(b ? 'Editar brigadista' : 'Añadir brigadista', `
+  abrirModal('Añadir brigadista', `
     <p class="section-sub" style="margin:0 0 4px; font-weight:600;">Datos de alta</p>
     <div class="form-grid">
-      ${campoIntake('Nombre y apellidos', 'br-nombre', 'text', b?.nombre)}
-      ${campoIntake('Fecha de nacimiento', 'br-fecha-nacimiento', 'date', b?.fecha_nacimiento)}
-      ${campoIntake('Fecha de alta', 'br-fecha-alta', 'date', b?.fecha_alta ?? new Date().toISOString().slice(0,10))}
+      ${campoIntake('Nombre y apellidos', 'br-nombre', 'text', '')}
+      ${campoIntake('Fecha de nacimiento', 'br-fecha-nacimiento', 'date', '')}
+      ${campoIntake('Fecha de alta', 'br-fecha-alta', 'date', new Date().toISOString().slice(0,10))}
       <div>
         <label class="section-sub" style="display:block; margin-bottom:4px;">Sexo (para el reporte a la Fundación Biodiversidad)</label>
         <select id="br-sexo">
-          <option value="" ${!b?.sexo?'selected':''}>Sin especificar</option>
-          <option value="mujer" ${b?.sexo==='mujer'?'selected':''}>Mujer</option>
-          <option value="hombre" ${b?.sexo==='hombre'?'selected':''}>Hombre</option>
-          <option value="otro" ${b?.sexo==='otro'?'selected':''}>Otro</option>
+          <option value="" selected>Sin especificar</option>
+          <option value="mujer">Mujer</option>
+          <option value="hombre">Hombre</option>
+          <option value="otro">Otro</option>
         </select>
       </div>
-      ${campoIntake('Situación laboral al ingresar', 'br-situacion-laboral', 'text', b?.situacion_laboral_alta)}
+      ${campoIntake('Situación laboral al ingresar', 'br-situacion-laboral', 'text', '')}
     </div>
-    ${bloqueSeguimiento}
-    <button class="btn-primary btn-inline" style="margin-top:12px;" onclick="guardarBrigadista(${id ? `'${id}'` : 'null'})">Guardar</button>
+    <button class="btn-primary btn-inline" style="margin-top:12px;" onclick="guardarBrigadista(null)">Guardar</button>
     <div id="brigadista-msg" class="section-sub"></div>
   `);
 }
@@ -1641,26 +1609,8 @@ async function guardarBrigadista(id){
     situacion_laboral_alta: document.getElementById('br-situacion-laboral').value.trim() || null,
   };
 
-  // Los campos de seguimiento solo existen en el formulario cuando se edita
-  const campoSeguimiento = document.getElementById('br-horas-tecnica');
-  if (campoSeguimiento){
-    datos.horas_formacion_tecnica = document.getElementById('br-horas-tecnica').value || 0;
-    datos.horas_formacion_transversal = document.getElementById('br-horas-transversal').value || 0;
-    datos.sesiones_tutorizacion_psicosocial = document.getElementById('br-sesiones').value || 0;
-    datos.estado_portfolio = document.getElementById('br-portfolio').value;
-    datos.estado_insercion = document.getElementById('br-insercion').value;
-    datos.tipo_salida = document.getElementById('br-tipo-salida').value.trim() || null;
-    datos.fecha_insercion = document.getElementById('br-fecha-insercion').value || null;
-    datos.notas_tutorizacion = document.getElementById('br-notas').value.trim() || null;
-  }
-
-  let error;
-  if (id){
-    ({ error } = await sb.from('brigadistas').update(datos).eq('id', id));
-  } else {
-    const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
-    ({ error } = await sb.from('brigadistas').insert({ ...datos, proyecto_id: proyecto.id }));
-  }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+  const { error } = await sb.from('brigadistas').insert({ ...datos, proyecto_id: proyecto.id });
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
   cerrarModal();
   await renderBrigadistas();
@@ -1670,17 +1620,151 @@ async function darBajaBrigadista(id){
   const ok = confirm('¿Marcar a este brigadista como inactivo (baja)?');
   if (!ok) return;
   await sb.from('brigadistas').update({ activo:false, fecha_baja: new Date().toISOString().slice(0,10) }).eq('id', id);
+  cerrarModal();
   await renderBrigadistas();
 }
 
-async function abrirModalVerDiario(brigadistaId, nombre){
+async function reactivarBrigadista(id){
+  await sb.from('brigadistas').update({ activo:true, fecha_baja: null }).eq('id', id);
+  await cambiarTabFicha(id, 'datos');
+  await renderBrigadistas();
+}
+
+// =====================================================================
+// FICHA COMPLETA DEL BRIGADISTA (Datos / Seguimiento / Diario / Notas / Profesionales)
+// =====================================================================
+let tabFichaActual = 'datos';
+
+async function abrirFichaBrigadista(id){
+  tabFichaActual = 'datos';
+  const b = cacheBrigadistas[id];
+  abrirModal(`Ficha — ${b?.nombre ?? ''}`, `
+    <div class="tabs-comite" id="tabs-ficha-brigadista">
+      <button class="tab-comite activa" data-tab-ficha="datos" onclick="cambiarTabFicha('${id}','datos')">Datos</button>
+      <button class="tab-comite" data-tab-ficha="seguimiento" onclick="cambiarTabFicha('${id}','seguimiento')">Seguimiento</button>
+      <button class="tab-comite" data-tab-ficha="diario" onclick="cambiarTabFicha('${id}','diario')">Diario</button>
+      <button class="tab-comite" data-tab-ficha="notas" onclick="cambiarTabFicha('${id}','notas')">Notas</button>
+      <button class="tab-comite" data-tab-ficha="profesionales" onclick="cambiarTabFicha('${id}','profesionales')">Profesionales</button>
+    </div>
+    <div id="contenido-ficha-brigadista"><p class="section-sub">Cargando...</p></div>
+  `);
+  await cambiarTabFicha(id, 'datos');
+}
+
+async function cambiarTabFicha(id, tab){
+  tabFichaActual = tab;
+  document.querySelectorAll('#tabs-ficha-brigadista .tab-comite').forEach(bt => bt.classList.toggle('activa', bt.dataset.tabFicha === tab));
+  const cont = document.getElementById('contenido-ficha-brigadista');
+  cont.innerHTML = '<p class="section-sub">Cargando...</p>';
+  if (tab === 'datos') renderFichaDatos(id, cont);
+  if (tab === 'seguimiento') renderFichaSeguimiento(id, cont);
+  if (tab === 'diario') await renderFichaDiario(id, cont);
+  if (tab === 'notas') await renderFichaNotas(id, cont);
+  if (tab === 'profesionales') await renderFichaProfesionales(id, cont);
+}
+
+function renderFichaDatos(id, cont){
+  const b = cacheBrigadistas[id];
+  const campo = (label, inputId, tipo, valor) => `
+    <div>
+      <label class="section-sub" style="display:block; margin-bottom:4px;">${label}</label>
+      <input id="${inputId}" type="${tipo}" value="${valor ?? ''}">
+    </div>`;
+
+  cont.innerHTML = `
+    <div class="form-grid">
+      ${campo('Nombre y apellidos', 'fd-nombre', 'text', b.nombre)}
+      ${campo('Fecha de nacimiento', 'fd-fecha-nacimiento', 'date', b.fecha_nacimiento)}
+      ${campo('Fecha de alta', 'fd-fecha-alta', 'date', b.fecha_alta)}
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Sexo</label>
+        <select id="fd-sexo">
+          <option value="" ${!b.sexo?'selected':''}>Sin especificar</option>
+          <option value="mujer" ${b.sexo==='mujer'?'selected':''}>Mujer</option>
+          <option value="hombre" ${b.sexo==='hombre'?'selected':''}>Hombre</option>
+          <option value="otro" ${b.sexo==='otro'?'selected':''}>Otro</option>
+        </select>
+      </div>
+      ${campo('Situación laboral al ingresar', 'fd-situacion-laboral', 'text', b.situacion_laboral_alta)}
+    </div>
+    <button class="btn-primary btn-inline" onclick="guardarFichaDatos('${id}')">Guardar</button>
+    ${b.activo
+      ? `<button class="btn-secundario" style="margin-left:8px;" onclick="darBajaBrigadista('${id}')">Dar de baja</button>`
+      : `<button class="btn-secundario" style="margin-left:8px;" onclick="reactivarBrigadista('${id}')">Reactivar</button>`}
+    <div id="ficha-datos-msg" class="section-sub" style="margin-top:8px;"></div>`;
+}
+
+async function guardarFichaDatos(id){
+  const msg = document.getElementById('ficha-datos-msg');
+  const nombre = document.getElementById('fd-nombre').value.trim();
+  if (!nombre){ msg.textContent = 'El nombre es obligatorio.'; return; }
+
+  const { error } = await sb.from('brigadistas').update({
+    nombre,
+    fecha_nacimiento: document.getElementById('fd-fecha-nacimiento').value || null,
+    fecha_alta: document.getElementById('fd-fecha-alta').value,
+    sexo: document.getElementById('fd-sexo').value || null,
+    situacion_laboral_alta: document.getElementById('fd-situacion-laboral').value.trim() || null,
+  }).eq('id', id);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  msg.textContent = 'Guardado.';
+  await renderBrigadistas();
+}
+
+function renderFichaSeguimiento(id, cont){
+  const b = cacheBrigadistas[id];
+  cont.innerHTML = `
+    <div class="form-grid">
+      <div><label class="section-sub" style="display:block; margin-bottom:4px;">Horas formación técnica</label><input id="fs-horas-tecnica" type="number" value="${b.horas_formacion_tecnica ?? 0}"></div>
+      <div><label class="section-sub" style="display:block; margin-bottom:4px;">Horas formación transversal</label><input id="fs-horas-transversal" type="number" value="${b.horas_formacion_transversal ?? 0}"></div>
+      <div><label class="section-sub" style="display:block; margin-bottom:4px;">Sesiones de tutorización</label><input id="fs-sesiones" type="number" value="${b.sesiones_tutorizacion_psicosocial ?? 0}"></div>
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Estado del portfolio</label>
+        <select id="fs-portfolio">
+          <option value="no_iniciado" ${b.estado_portfolio==='no_iniciado'?'selected':''}>No iniciado</option>
+          <option value="en_progreso" ${b.estado_portfolio==='en_progreso'?'selected':''}>En progreso</option>
+          <option value="completado" ${b.estado_portfolio==='completado'?'selected':''}>Completado</option>
+        </select>
+      </div>
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Estado de inserción</label>
+        <select id="fs-insercion">
+          <option value="no_insertado" ${b.estado_insercion==='no_insertado'?'selected':''}>No insertado</option>
+          <option value="en_proceso" ${b.estado_insercion==='en_proceso'?'selected':''}>En proceso</option>
+          <option value="insertado" ${b.estado_insercion==='insertado'?'selected':''}>Insertado</option>
+        </select>
+      </div>
+      <div><label class="section-sub" style="display:block; margin-bottom:4px;">Tipo de salida (si insertado)</label><input id="fs-tipo-salida" type="text" value="${b.tipo_salida ?? ''}"></div>
+      <div><label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de inserción</label><input id="fs-fecha-insercion" type="date" value="${b.fecha_insercion ?? ''}"></div>
+    </div>
+    <button class="btn-primary btn-inline" onclick="guardarFichaSeguimiento('${id}')">Guardar</button>
+    <div id="ficha-seguimiento-msg" class="section-sub" style="margin-top:8px;"></div>`;
+}
+
+async function guardarFichaSeguimiento(id){
+  const msg = document.getElementById('ficha-seguimiento-msg');
+  const { error } = await sb.from('brigadistas').update({
+    horas_formacion_tecnica: document.getElementById('fs-horas-tecnica').value || 0,
+    horas_formacion_transversal: document.getElementById('fs-horas-transversal').value || 0,
+    sesiones_tutorizacion_psicosocial: document.getElementById('fs-sesiones').value || 0,
+    estado_portfolio: document.getElementById('fs-portfolio').value,
+    estado_insercion: document.getElementById('fs-insercion').value,
+    tipo_salida: document.getElementById('fs-tipo-salida').value.trim() || null,
+    fecha_insercion: document.getElementById('fs-fecha-insercion').value || null,
+  }).eq('id', id);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  msg.textContent = 'Guardado.';
+  await renderBrigadistas();
+}
+
+async function renderFichaDiario(id, cont){
   const { data: entradas, error } = await sb
     .from('diario_brigadista')
     .select('*')
-    .eq('brigadista_id', brigadistaId)
+    .eq('brigadista_id', id)
     .order('fecha', { ascending:false });
 
-  const cuerpo = error
+  cont.innerHTML = error
     ? `<p class="section-sub">No se ha podido cargar (¿tienes acceso asignado a este brigadista?): ${error.message}</p>`
     : (!entradas || entradas.length === 0)
       ? '<p class="section-sub">Todavía no hay entradas.</p>'
@@ -1690,27 +1774,63 @@ async function abrirModalVerDiario(brigadistaId, nombre){
           <p style="font-size:13px; white-space:pre-line; margin:0;">${e.contenido}</p>
         </div>
       `).join('');
-
-  abrirModal(`Diario — ${nombre}`, cuerpo);
 }
 
-async function abrirModalAsignarProfesionales(brigadistaId, nombre){
+async function renderFichaNotas(id, cont){
+  const { data: notas, error } = await sb.from('notas_brigadista').select('*').eq('brigadista_id', id).order('fecha', { ascending:false });
+  cont.innerHTML = `
+    <div class="card">
+      <h3 class="titulo-card">Nueva nota</h3>
+      <input id="fn-fecha" type="date" value="${new Date().toISOString().slice(0,10)}" style="margin-bottom:10px;">
+      <textarea id="fn-contenido" placeholder="Escribe la nota..." class="textarea-comite"></textarea>
+      <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="crearNotaBrigadista('${id}')">Guardar</button>
+      <div id="ficha-notas-msg" class="section-sub"></div>
+    </div>
+    <div>
+      ${error ? `<p class="section-sub">Error: ${error.message}</p>` : (!notas || notas.length === 0) ? '<p class="section-sub">Todavía no hay notas.</p>' : notas.map(n => `
+        <div class="registro-seguimiento">
+          <p class="section-sub" style="margin:0 0 4px;">${n.fecha}</p>
+          <p style="font-size:13px; white-space:pre-line; margin:0;">${n.contenido}</p>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+async function crearNotaBrigadista(id){
+  const msg = document.getElementById('ficha-notas-msg');
+  const contenido = document.getElementById('fn-contenido').value.trim();
+  if (!contenido){ msg.textContent = 'Escribe algo antes de guardar.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+  const { data: { user } } = await sb.auth.getUser();
+
+  const { error } = await sb.from('notas_brigadista').insert({
+    proyecto_id: proyecto.id,
+    brigadista_id: id,
+    fecha: document.getElementById('fn-fecha').value,
+    contenido,
+    registrado_por: user?.id ?? null,
+  });
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  await renderFichaNotas(id, document.getElementById('contenido-ficha-brigadista'));
+}
+
+async function renderFichaProfesionales(id, cont){
   const { data: perfiles } = await sb.from('perfiles').select('id, nombre_completo, rol').neq('rol', 'brigadista');
-  const { data: asignados } = await sb.from('asignaciones_brigadista').select('perfil_id').eq('brigadista_id', brigadistaId);
+  const { data: asignados } = await sb.from('asignaciones_brigadista').select('perfil_id').eq('brigadista_id', id);
   const idsAsignados = (asignados || []).map(a => a.perfil_id);
 
-  abrirModal(`Profesionales asignados — ${nombre}`, `
+  cont.innerHTML = `
+    <p class="section-sub" style="margin-bottom:10px;">Quién puede leer el diario de este brigadista, además del director:</p>
     <div class="checks-asistentes">
-      ${(perfiles || []).length === 0 ? '<p class="section-sub">Todavía no hay perfiles de personal dados de alta (se crean vinculando un usuario de Supabase Auth a un rol en la tabla perfiles).</p>' : perfiles.map(p => `
+      ${(perfiles || []).length === 0 ? '<p class="section-sub">Todavía no hay perfiles de personal dados de alta.</p>' : perfiles.map(p => `
         <label class="check-asistente">
           <input type="checkbox" value="${p.id}" class="chk-profesional-asignado" ${idsAsignados.includes(p.id) ? 'checked' : ''}>
           ${p.nombre_completo || '(sin nombre)'} · ${p.rol}
         </label>
       `).join('')}
     </div>
-    <button class="btn-primary btn-inline" onclick="guardarAsignaciones('${brigadistaId}')">Guardar</button>
-    <div id="asignaciones-msg" class="section-sub"></div>
-  `);
+    <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarAsignaciones('${id}')">Guardar</button>
+    <div id="asignaciones-msg" class="section-sub"></div>`;
 }
 
 async function guardarAsignaciones(brigadistaId){
@@ -1723,7 +1843,7 @@ async function guardarAsignaciones(brigadistaId){
     const { error } = await sb.from('asignaciones_brigadista').insert(filas);
     if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
   }
-  cerrarModal();
+  msg.textContent = 'Guardado.';
 }
 
 // =====================================================================
