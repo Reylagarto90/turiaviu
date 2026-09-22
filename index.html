@@ -3432,7 +3432,7 @@ async function cambiarVistaCronograma(vista){
   cont.innerHTML = '<p class="section-sub">Cargando...</p>';
   const { data: actividades, error } = await sb
     .from('actividades')
-    .select('id, codigo, nombre, fecha_inicio_prevista, fecha_fin_prevista, estado, acciones(id, codigo, descripcion, fecha_inicio_prevista, fecha_fin_prevista, estado)')
+    .select('id, codigo, nombre, fecha_inicio_prevista, fecha_fin_prevista, fecha_realizacion, estado, acciones(id, codigo, descripcion, fecha_inicio_prevista, fecha_fin_prevista, fecha_realizacion, estado)')
     .order('codigo');
   if (error){ cont.innerHTML = `<p class="section-sub">No se ha podido cargar el cronograma: ${error.message}</p>`; return; }
 
@@ -3456,13 +3456,14 @@ function renderCronogramaTabla(cont, actividades){
         <div>
           <span class="oe-codigo">${a.codigo}</span> <strong style="font-size:13px;">${a.nombre}</strong>
           <p class="section-sub" style="margin:4px 0 0;">
-            ${a.fecha_inicio_prevista ?? '— sin fecha —'} → ${a.fecha_fin_prevista ?? '— sin fecha —'}
+            ${a.fecha_inicio_prevista ?? '— sin fecha —'} → ${a.fecha_fin_prevista ?? '— sin fecha —'}${a.fecha_realizacion ? ` · Realizada: ${a.fecha_realizacion}` : ''}
           </p>
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
           ${badgeEstado(a.estado)}
           <button class="btn-secundario" onclick="abrirModalSeguimiento('${a.id}', null, '${a.codigo}: ${a.nombre.replace(/'/g,"\\'")}')">Seguimiento</button>
-          <button class="btn-secundario" onclick="abrirModalFechas('actividad','${a.id}','${a.codigo}: ${a.nombre.replace(/'/g,"\\'")}','${a.fecha_inicio_prevista ?? ''}','${a.fecha_fin_prevista ?? ''}','${a.estado}')">Editar fechas</button>
+          <button class="btn-secundario" onclick="abrirModalContribuciones('actividad','${a.id}','${a.codigo}: ${a.nombre.replace(/'/g,"\\'")}')">Indicadores</button>
+          <button class="btn-secundario" onclick="abrirModalFechas('actividad','${a.id}','${a.codigo}: ${a.nombre.replace(/'/g,"\\'")}','${a.fecha_inicio_prevista ?? ''}','${a.fecha_fin_prevista ?? ''}','${a.fecha_realizacion ?? ''}','${a.estado}')">Editar fechas</button>
         </div>
       </div>
       ${(a.acciones || []).length > 0 ? `
@@ -3472,12 +3473,13 @@ function renderCronogramaTabla(cont, actividades){
               <div>
                 <span class="oe-codigo" style="background:var(--fondo)">${acc.codigo}</span>
                 <span style="font-size:12.5px;">${acc.descripcion}</span>
-                <p class="section-sub" style="margin:2px 0 0;">${acc.fecha_inicio_prevista ?? '— sin fecha —'} → ${acc.fecha_fin_prevista ?? '— sin fecha —'}</p>
+                <p class="section-sub" style="margin:2px 0 0;">${acc.fecha_inicio_prevista ?? '— sin fecha —'} → ${acc.fecha_fin_prevista ?? '— sin fecha —'}${acc.fecha_realizacion ? ` · Realizada: ${acc.fecha_realizacion}` : ''}</p>
               </div>
               <div style="display:flex; align-items:center; gap:8px;">
                 ${badgeEstado(acc.estado)}
                 <button class="btn-secundario" onclick="abrirModalSeguimiento('${a.id}', '${acc.id}', '${acc.codigo}: ${acc.descripcion.replace(/'/g,"\\'").slice(0,60)}')">Seguimiento</button>
-                <button class="btn-secundario" onclick="abrirModalFechas('accion','${acc.id}','${acc.codigo}: ${acc.descripcion.replace(/'/g,"\\'").slice(0,60)}','${acc.fecha_inicio_prevista ?? ''}','${acc.fecha_fin_prevista ?? ''}','${acc.estado}')">Editar</button>
+                <button class="btn-secundario" onclick="abrirModalContribuciones('accion','${acc.id}','${acc.codigo}: ${acc.descripcion.replace(/'/g,"\\'").slice(0,60)}')">Indicadores</button>
+                <button class="btn-secundario" onclick="abrirModalFechas('accion','${acc.id}','${acc.codigo}: ${acc.descripcion.replace(/'/g,"\\'").slice(0,60)}','${acc.fecha_inicio_prevista ?? ''}','${acc.fecha_fin_prevista ?? ''}','${acc.fecha_realizacion ?? ''}','${acc.estado}')">Editar</button>
               </div>
             </div>
           `).join('')}
@@ -3486,16 +3488,20 @@ function renderCronogramaTabla(cont, actividades){
   `).join('');
 }
 
-function abrirModalFechas(tipo, id, etiqueta, fechaInicio, fechaFin, estado){
+function abrirModalFechas(tipo, id, etiqueta, fechaInicio, fechaFin, fechaRealizacion, estado){
   abrirModal(`Fechas — ${etiqueta}`, `
     <div class="form-grid">
       <div>
-        <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de inicio</label>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de inicio prevista</label>
         <input id="cr-fecha-inicio" type="date" value="${fechaInicio}">
       </div>
       <div>
-        <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de fin</label>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de fin prevista</label>
         <input id="cr-fecha-fin" type="date" value="${fechaFin}">
+      </div>
+      <div>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Fecha de realización</label>
+        <input id="cr-fecha-realizacion" type="date" value="${fechaRealizacion}">
       </div>
       <select id="cr-estado">
         <option value="planificada" ${estado==='planificada'?'selected':''}>Planificada</option>
@@ -3512,12 +3518,110 @@ function abrirModalFechas(tipo, id, etiqueta, fechaInicio, fechaFin, estado){
 async function guardarFechas(tipo, id){
   const msg = document.getElementById('cronograma-msg');
   const tabla = tipo === 'actividad' ? 'actividades' : 'acciones';
+  const fechaRealizacion = document.getElementById('cr-fecha-realizacion').value || null;
+
   const { error } = await sb.from(tabla).update({
     fecha_inicio_prevista: document.getElementById('cr-fecha-inicio').value || null,
     fecha_fin_prevista: document.getElementById('cr-fecha-fin').value || null,
+    fecha_realizacion: fechaRealizacion,
     estado: document.getElementById('cr-estado').value,
   }).eq('id', id);
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+
+  if (fechaRealizacion){
+    const campo = tipo === 'actividad' ? 'actividad_id' : 'accion_id';
+    const { data: pendientes } = await sb.from('contribuciones_indicador').select('*, indicadores(codigo, descripcion, unidad_medida)').eq(campo, id).eq('aplicado', false);
+    if (pendientes && pendientes.length > 0){
+      abrirModalConfirmarContribuciones(tipo, id, pendientes);
+      return;
+    }
+  }
+
+  cerrarModal();
+  await cambiarVistaCronograma(vistaCronogramaActual);
+}
+
+// --------- Contribuciones planificadas a indicadores ---------
+async function abrirModalContribuciones(tipo, id, etiqueta){
+  const campo = tipo === 'actividad' ? 'actividad_id' : 'accion_id';
+  const { data: contribuciones } = await sb.from('contribuciones_indicador').select('*, indicadores(codigo, descripcion)').eq(campo, id).order('created_at');
+  const { data: indicadores } = await sb.from('indicadores').select('id, codigo, descripcion, objetivos(codigo)').order('codigo');
+
+  abrirModal(`Indicadores previstos — ${etiqueta}`, `
+    <div class="card">
+      <h3 class="titulo-card">Añadir contribución prevista</h3>
+      <div class="form-grid">
+        <select id="ci-indicador">
+          ${(indicadores || []).map(i => `<option value="${i.id}">${i.objetivos?.codigo ?? ''} · ${i.codigo} — ${i.descripcion.slice(0,35)}</option>`).join('')}
+        </select>
+        <input id="ci-cantidad" type="number" step="any" placeholder="Cantidad prevista">
+      </div>
+      <button class="btn-primary btn-inline" onclick="crearContribucion('${tipo}','${id}','${etiqueta.replace(/'/g,"\\'")}')">Añadir</button>
+      <div id="contribucion-msg" class="section-sub"></div>
+    </div>
+    <div>
+      ${(!contribuciones || contribuciones.length === 0) ? '<p class="section-sub">Todavía no hay indicadores previstos para esto.</p>' : contribuciones.map(c => `
+        <div class="card fila-miembro">
+          <div>
+            <p style="font-size:13px; margin:0;">${c.indicadores?.codigo} — ${c.indicadores?.descripcion?.slice(0,50)}</p>
+            <p class="section-sub" style="margin:2px 0 0;">Previsto: ${c.cantidad_prevista}${c.aplicado ? ` · Aplicado: ${c.cantidad_real} el ${c.fecha_aplicacion}` : ' · Pendiente de aplicar'}</p>
+          </div>
+          ${!c.aplicado ? `<button class="btn-secundario btn-mini" onclick="eliminarContribucion('${c.id}','${tipo}','${id}','${etiqueta.replace(/'/g,"\\'")}')">Eliminar</button>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `);
+}
+
+async function crearContribucion(tipo, id, etiqueta){
+  const msg = document.getElementById('contribucion-msg');
+  const cantidad = document.getElementById('ci-cantidad').value;
+  if (!cantidad){ msg.textContent = 'Indica una cantidad prevista.'; return; }
+  const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+
+  const datos = {
+    proyecto_id: proyecto.id,
+    indicador_id: document.getElementById('ci-indicador').value,
+    cantidad_prevista: cantidad,
+  };
+  datos[tipo === 'actividad' ? 'actividad_id' : 'accion_id'] = id;
+
+  const { error } = await sb.from('contribuciones_indicador').insert(datos);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  await abrirModalContribuciones(tipo, id, etiqueta);
+}
+
+async function eliminarContribucion(contribucionId, tipo, id, etiqueta){
+  await sb.from('contribuciones_indicador').delete().eq('id', contribucionId);
+  await abrirModalContribuciones(tipo, id, etiqueta);
+}
+
+function abrirModalConfirmarContribuciones(tipo, id, pendientes){
+  abrirModal('Confirmar contribución a indicadores', `
+    <p class="section-sub" style="margin-bottom:12px;">Esta actividad/acción tiene indicadores previstos. Confirma (o ajusta) la cantidad real conseguida antes de sumarla.</p>
+    ${pendientes.map(p => `
+      <div class="card">
+        <p style="font-size:13px; margin:0 0 6px;">${p.indicadores?.codigo} — ${p.indicadores?.descripcion?.slice(0,60)}</p>
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Cantidad real (prevista: ${p.cantidad_prevista})</label>
+        <input id="cc-cantidad-${p.id}" type="number" step="any" value="${p.cantidad_prevista}">
+      </div>
+    `).join('')}
+    <button class="btn-primary btn-inline" style="margin-top:10px;" onclick='confirmarContribuciones(${JSON.stringify(pendientes.map(p=>p.id))})'>Confirmar y aplicar</button>
+    <div id="confirmar-contrib-msg" class="section-sub"></div>
+  `);
+}
+
+async function confirmarContribuciones(ids){
+  const msg = document.getElementById('confirmar-contrib-msg');
+  for (const cid of ids){
+    const { data: fila } = await sb.from('contribuciones_indicador').select('indicador_id').eq('id', cid).single();
+    const cantidadReal = parseFloat(document.getElementById(`cc-cantidad-${cid}`).value || 0);
+    await sb.rpc('incrementar_indicador_id', { p_id: fila.indicador_id, p_delta: cantidadReal });
+    await sb.from('contribuciones_indicador').update({
+      aplicado: true, cantidad_real: cantidadReal, fecha_aplicacion: new Date().toISOString().slice(0,10)
+    }).eq('id', cid);
+  }
+  msg.textContent = 'Aplicado correctamente.';
   cerrarModal();
   await cambiarVistaCronograma(vistaCronogramaActual);
 }
