@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.js"></script>
 <style>
   :root{
     --verde-bosque:#1B4D3E;
@@ -434,7 +435,10 @@ async function cargarModulo(id){
           <h2>Indicadores FB</h2>
           <p class="section-sub">Indicadores del artículo 21 de la convocatoria — Fundación Biodiversidad</p>
         </div>
-        <button class="btn-anadir" style="margin:0" onclick="descargarInformeFB()">Descargar informe PDF</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-anadir" style="margin:0" onclick="descargarInformeFB()">Descargar PDF</button>
+          <button class="btn-anadir" style="margin:0" onclick="descargarInformeFBWord()">Descargar Word</button>
+        </div>
       </div>
       <div class="tabs-comite">
         <button class="tab-comite activa" data-tab-fb="informe" onclick="cambiarTabFB('informe')">Informe</button>
@@ -985,6 +989,25 @@ async function eliminarEventoManual(id){
   await renderCalendario();
 }
 
+function abrirModalEditarValorIndicador(id, codigo, valorActual){
+  abrirModal(`Editar valor — ${codigo}`, `
+    <label class="section-sub" style="display:block; margin-bottom:4px;">Nuevo valor</label>
+    <input id="ei-valor" type="number" step="any" value="${valorActual}">
+    <button class="btn-primary btn-inline" style="margin-top:10px;" onclick="guardarValorIndicador('${id}')">Guardar</button>
+    <div id="editar-indicador-msg" class="section-sub"></div>
+  `);
+}
+
+async function guardarValorIndicador(id){
+  const msg = document.getElementById('editar-indicador-msg');
+  const nuevoValor = document.getElementById('ei-valor').value;
+  if (nuevoValor === ''){ msg.textContent = 'Introduce un valor.'; return; }
+  const { error } = await sb.from('indicadores').update({ valor_actual: nuevoValor }).eq('id', id);
+  if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+  cerrarModal();
+  await cargarObjetivosEIndicadores();
+}
+
 async function cargarObjetivosEIndicadores(){
   const cont = document.getElementById('lista-objetivos');
   const { data: objetivos, error: errObj } = await sb
@@ -1018,7 +1041,12 @@ async function cargarObjetivosEIndicadores(){
         const pct = ind.meta ? Math.min(100, Math.round((ind.valor_actual / ind.meta) * 100)) : 0;
         return `
         <div class="indicador-row">
-          <div class="ind-label"><span>${ind.codigo} — ${ind.descripcion}</span><span>${ind.valor_actual} / ${ind.meta ?? '—'} ${ind.unidad_medida ?? ''}</span></div>
+          <div class="ind-label">
+            <span>${ind.codigo} — ${ind.descripcion}</span>
+            <span>${ind.valor_actual} / ${ind.meta ?? '—'} ${ind.unidad_medida ?? ''}
+              <button class="btn-secundario btn-mini" style="margin-left:8px;" onclick="abrirModalEditarValorIndicador('${ind.id}','${ind.codigo}',${ind.valor_actual})">Editar valor</button>
+            </span>
+          </div>
           <div class="barra-bg"><div class="barra-fill ${pct < 50 ? 'rosa' : ''}" style="width:${pct}%"></div></div>
         </div>`;
       }).join('')}
@@ -1053,7 +1081,7 @@ async function construirCuerpoSeguimiento(actividadId, accionId){
       ? `<p class="section-sub">Todavía no hay registros de seguimiento.</p>`
       : registros.map(r => `
         <div class="registro-seguimiento" id="reg-${r.id}">
-          <p class="section-sub" style="margin:0 0 2px;">${r.fecha}${r.indicadores ? ` · vinculado a ${r.indicadores.codigo}` : ''}</p>
+          <p class="section-sub" style="margin:0 0 2px;">${r.fecha}${r.indicadores ? ` · vinculado a ${r.indicadores.codigo}${r.cantidad ? ` (+${r.cantidad})` : ''}` : ''}</p>
           <p style="font-size:13px; margin:0 0 6px;">${r.descripcion}</p>
           <button class="btn-secundario btn-mini" onclick="mostrarFormConvertirIncidencia('${r.id}')">Convertir en incidencia</button>
           <div id="conv-${r.id}" class="form-convertir-incidencia" style="display:none;">
@@ -1084,10 +1112,14 @@ async function construirCuerpoSeguimiento(actividadId, accionId){
       <textarea id="sg-descripcion" placeholder="¿Qué se ha hecho / qué ha pasado?" class="textarea-comite"></textarea>
       <div class="form-grid">
         <input id="sg-fecha" type="date" value="${new Date().toISOString().slice(0,10)}">
-        <select id="sg-indicador">
+        <select id="sg-indicador" onchange="document.getElementById('sg-campo-cantidad').style.display = this.value ? 'block' : 'none';">
           <option value="">Sin vincular a un indicador</option>
           ${(indicadores || []).map(i => `<option value="${i.id}">${i.objetivos?.codigo ?? ''} · ${i.codigo} — ${i.descripcion.slice(0,40)}</option>`).join('')}
         </select>
+      </div>
+      <div id="sg-campo-cantidad" style="display:none; margin-bottom:10px;">
+        <label class="section-sub" style="display:block; margin-bottom:4px;">Cantidad a sumar al indicador</label>
+        <input id="sg-cantidad" type="number" step="any" placeholder="Ej. 1, 5, 0.5...">
       </div>
       <button class="btn-primary btn-inline" onclick="crearSeguimiento('${actividadId}', ${accionId ? `'${accionId}'` : 'null'})">Guardar registro</button>
       <div id="seguimiento-msg" class="section-sub"></div>
@@ -1100,6 +1132,8 @@ async function crearSeguimiento(actividadId, accionId){
   const descripcion = document.getElementById('sg-descripcion').value.trim();
   if (!descripcion){ msg.textContent = 'Describe qué se ha hecho antes de guardar.'; return; }
   const { data: proyecto } = await sb.from('proyecto').select('id').limit(1).single();
+  const indicadorId = document.getElementById('sg-indicador').value || null;
+  const cantidad = document.getElementById('sg-cantidad').value || null;
 
   const { error } = await sb.from('seguimiento_actividad').insert({
     proyecto_id: proyecto.id,
@@ -1107,9 +1141,14 @@ async function crearSeguimiento(actividadId, accionId){
     accion_id: accionId,
     fecha: document.getElementById('sg-fecha').value,
     descripcion,
-    indicador_id: document.getElementById('sg-indicador').value || null,
+    indicador_id: indicadorId,
+    cantidad: indicadorId ? (cantidad || null) : null,
   });
   if (error){ msg.textContent = 'Error al guardar: ' + error.message; return; }
+
+  if (indicadorId && cantidad){
+    await sb.rpc('incrementar_indicador_id', { p_id: indicadorId, p_delta: parseFloat(cantidad) });
+  }
 
   const cuerpo = await construirCuerpoSeguimiento(actividadId, accionId);
   document.getElementById('modal-cuerpo').innerHTML = cuerpo;
@@ -2796,6 +2835,87 @@ async function descargarInformeFB(){
 
     doc.save(`indicadores_FB_turiaviu_${new Date().toISOString().slice(0,10)}.pdf`);
   }
+}
+
+async function descargarInformeFBWord(){
+  const d = await obtenerDatosInformeFB();
+  const { Document, Packer, Paragraph, TextRun, HeadingLevel } = window.docx;
+
+  const porSexo = arr => {
+    const r = { mujer:0, hombre:0, otro:0 };
+    arr.forEach(x => { if (r[x.sexo] !== undefined) r[x.sexo]++; });
+    return `Mujeres: ${r.mujer} · Hombres: ${r.hombre} · Otro: ${r.otro}`;
+  };
+  const tiposComunicacion = {};
+  d.comunicacion.forEach(c => { tiposComunicacion[c.tipo] = (tiposComunicacion[c.tipo]||0) + 1; });
+  const superficiePorTipo = tipo => d.superficies.filter(s => s.tipo === tipo).reduce((s,x) => s + Number(x.km2), 0);
+  const empleosPorTipo = (tipo, plazo) => d.empleos.filter(e => e.tipo === tipo && e.plazo === plazo).length;
+
+  const h2 = texto => new Paragraph({ text: texto, heading: HeadingLevel.HEADING_2, spacing:{ before:240, after:120 } });
+  const linea = texto => new Paragraph({ children:[new TextRun({ text: texto, size:21 })], spacing:{ after:80 } });
+  const lineas = arr => arr.length ? arr.map(linea) : [linea('Sin registros.')];
+
+  const secciones = [
+    new Paragraph({ text: 'TuriaViu · Indicadores Art. 21 — Fundación Biodiversidad', heading: HeadingLevel.TITLE, spacing:{ after:80 } }),
+    new Paragraph({ children:[new TextRun({ text:`Generado el ${new Date().toLocaleDateString('es-ES')}`, italics:true, size:18 })], spacing:{ after:200 } }),
+
+    h2('a) Beneficiarios por tipo de actividad y género'),
+    ...lineas([`Brigadistas (participantes directos): ${d.brigadistas.length}`, porSexo(d.brigadistas)]),
+
+    h2('b) Amenazas a la biodiversidad sobre las que se actúa'),
+    ...lineas(d.amenazas.map(a => `${a.tipo}${a.descripcion?': '+a.descripcion:''}`)),
+
+    h2('c) Empleos generados (directos/indirectos, corto/largo plazo)'),
+    ...lineas([
+      `Directos corto plazo: ${empleosPorTipo('directo','corto')} · Directos largo plazo: ${empleosPorTipo('directo','largo')}`,
+      `Indirectos corto plazo: ${empleosPorTipo('indirecto','corto')} · Indirectos largo plazo: ${empleosPorTipo('indirecto','largo')}`,
+      porSexo(d.empleos),
+      `Personal del propio proyecto (RRHH), como referencia: ${d.rrhh.length} personas — ${porSexo(d.rrhh)}`,
+    ]),
+
+    h2('d) y m) Actividades de capacitación, empleo, comunicación y educación'),
+    ...lineas(Object.entries(tiposComunicacion).map(([t,n]) => `${ETIQUETAS_TIPO_COMUNICACION[t]||t}: ${n}`)),
+
+    h2('e) Actividades de comunicación, sensibilización y/o educación'),
+    ...lineas(d.comunicacion.map(c => `${c.fecha} — ${ETIQUETAS_TIPO_COMUNICACION[c.tipo]||c.tipo}: ${c.titulo}`)),
+
+    h2('f) Superficie total de intervención'),
+    ...lineas([`${superficiePorTipo('intervencion').toFixed(3)} km²`]),
+
+    h2('g) Superficie de restauración y mejora de hábitat'),
+    ...lineas([`${superficiePorTipo('restauracion').toFixed(3)} km²`]),
+
+    h2('h) Superficie de mejora en prevención de inundación'),
+    ...lineas([`${superficiePorTipo('prevencion_inundacion').toFixed(3)} km²`]),
+
+    h2('i) Especies con acciones de conservación'),
+    ...lineas(d.especies.map(e => `${e.especie}${e.accion_realizada?': '+e.accion_realizada:''}`)),
+
+    h2('j) Personas en formación (situación laboral, sexo, edad)'),
+    ...lineas(d.brigadistas.map(b => `${b.nombre}: ${(b.horas_formacion_tecnica||0)+(b.horas_formacion_transversal||0)}h · ${b.sexo||'sin especificar'} · ${calcularGrupoEdad(b.fecha_nacimiento)||'sin especificar'} · ${b.situacion_laboral_alta||'sin especificar'}`)),
+
+    h2('k) Personas en sensibilización (sexo, edad)'),
+    ...lineas(['No desglosado por sexo/edad — se registra como número total de personas alcanzadas (indicador 4.1).']),
+
+    h2('l) Personas voluntarias (sexo, edad) y nº de iniciativas'),
+    ...lineas([
+      `Nº de jornadas de voluntariado: ${tiposComunicacion['voluntariado']||0} · Voluntarios registrados: ${d.voluntarios.length}`,
+      porSexo(d.voluntarios),
+      ...['18-29','30-44','45-64','65 o más','Menor de 18'].map(g => {
+        const n = d.voluntarios.filter(v => calcularGrupoEdad(v.fecha_nacimiento) === g).length;
+        return n ? `${g}: ${n}` : null;
+      }).filter(Boolean),
+    ]),
+  ];
+
+  const documento = new Document({ sections: [{ children: secciones }] });
+  const blob = await Packer.toBlob(documento);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `indicadores_FB_turiaviu_${new Date().toISOString().slice(0,10)}.docx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // =====================================================================
